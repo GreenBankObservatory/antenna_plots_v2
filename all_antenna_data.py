@@ -1,7 +1,7 @@
-# %%
 import os
 import time
 import argparse
+import PIL
 
 import datashader as ds
 import pandas as pd
@@ -28,11 +28,11 @@ def format_bytes(num_bytes: int):
         # If we don't have a power label, just return the raw bytes with the appropriate suffix
         return f"{num_bytes:,.2f} B"
 
-def generate_projections(file: str):
-    print(f"File size: {format_bytes(os.path.getsize(file))}")
+def generate_projections(input_file: str, dest: str):
+    print(f"File size: {format_bytes(os.path.getsize(input_file))}")
 
     start = time.perf_counter()
-    df = pd.read_parquet(file, columns=["DMJD", "RAJ2000", "DECJ2000"])
+    df = pd.read_parquet(input_file, columns=["DMJD", "RAJ2000", "DECJ2000"])
     print(f"Loading parquet file: {round(time.perf_counter() - start, 2)}s")
 
     print(f"Data frame size: {df.size} rows")
@@ -49,17 +49,19 @@ def generate_projections(file: str):
     points = points.opts(gv.opts.Points(projection=crs.Mollweide(), global_extent=True, width=2000, height=1000))
 
     start = time.perf_counter()
-    projected = gv.operation.project_points(points, projection=crs.Mollweide(), global_extent=True)
+    projected = gv.operation.project_points(points, projection=crs.Mollweide())
     print(f"Projecting geoviews points: {round(time.perf_counter() - start,2)}s")
 
     ranges = get_ranges()
     canvas = ds.Canvas(plot_width=2000, plot_height=1000, y_range=(min(ranges["DECJ2000"]), max(ranges["DECJ2000"])))
     canvas_points = canvas.points(projected.data, "RAJ2000", "DECJ2000")
 
-    ds.tf.Images(ds.tf.set_background(ds.tf.shade(canvas_points, cc.bmw), "black"),
-                ds.tf.set_background(ds.tf.shade(canvas_points, cc.bgy), "black"),
-                ds.tf.set_background(ds.tf.shade(canvas_points, cc.CET_L8), "black"))
+    # ds.tf.Images(ds.tf.set_background(ds.tf.shade(canvas_points, cc.bmw), "black"),
+    #             ds.tf.set_background(ds.tf.shade(canvas_points, cc.bgy), "black"),
+    #             ds.tf.set_background(ds.tf.shade(canvas_points, cc.CET_L8), "black"))
     
+    ds_image = ds.tf.Image(ds.tf.set_background(ds.tf.shade(canvas_points, cc.bmw), "black"))
+    ds_image.to_pil().save(dest)
 
 
 def get_ranges():
@@ -71,8 +73,10 @@ def get_ranges():
     return ranges_projected.data
 
 parser = argparse.ArgumentParser()
-parser.add_argument("file", nargs=1, metavar="file", help="The parquet file used to plot antenna positions")
+parser.add_argument("input_file", help="The parquet file used to plot antenna positions")
+parser.add_argument("dest", help="The destination file to save the generated image")
 args = parser.parse_args()
-file = str(args.file)
-generate_projections(file)
+input_file = str(args.input_file)
+dest = str(args.dest)
+generate_projections(input_file, dest)
 
