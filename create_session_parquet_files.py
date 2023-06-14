@@ -1,23 +1,22 @@
-import os
 import argparse
-import re
+from pathlib import Path
 
 from astropy.table import Table, vstack
 import pandas as pd
 import numpy as np
 
-# regular expression to match the session name given a path to antenna FITS file
-SESSION_REGEX = re.compile(r"/[^/]*/Antenna")
 
-def group_files_df(manifest_path: str):
+# df groupby
+# default dict
+# break up functions so easier to test
+
+
+def group_files_df(manifest_path: Path | str):
     """Returns a pd dataframe with one column containing all the paths listed in the manifest file, and
     another column containing each file's associated session"""
-    lines = open(manifest_path, "r").readlines()
-    df = pd.DataFrame(lines, columns=["path"])
-    df["path"] = df["path"].map(lambda x: x.replace("\n", ""))
-    # get session name
-    df["session"] = df["path"].map(lambda x: re.search(SESSION_REGEX, x).group(0).split("/")[1])
-    return df
+    with open(manifest_path, "r") as file:
+        rows = ((path.rstrip("\n"), Path(path).parent.parent.name) for path in file)
+        return pd.DataFrame(rows, columns=["path", "session"])
 
 
 def create_session_antenna_df(df, session):
@@ -33,27 +32,30 @@ def create_parquets(antenna_session_manifest_path: str, output_dir: str):
     """Generates a tree with output_dir as the root and subdirectories for each session, each containing
     a parquet file with combined antenna position data"""
     
-    os.makedirs(output_dir)
-
     df = group_files_df(antenna_session_manifest_path)
     sessions = np.unique(df["session"])
 
     for session in sessions:
 
-        session_dir = os.path.join(output_dir, session)
-        os.makedirs(session_dir)
+        session_dir = Path(output_dir, session)
+        Path.mkdir(session_dir, parents=True, exist_ok=True)
 
         sliced_df = create_session_antenna_df(df, session)
-        sliced_df.to_parquet(''.join([os.path.join(session_dir, session), ".parquet"]))
+        sliced_df.to_parquet(f"{Path(session_dir, session)}.parquet")
 
 
-def main():
+def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("antenna_session_manifest_path", help="The files containing the paths to antenna FITS files")
-    parser.add_argument("output_dir", help="The created directory containing the tree of parquet files")
+    parser.add_argument("antenna_session_manifest_path", type=Path, help="The files containing the paths to antenna FITS files")
+    parser.add_argument("output_dir", type=Path, help="The created directory containing the tree of parquet files")
     args = parser.parse_args()
     manifest_path = str(args.antenna_session_manifest_path)
     output_dir = str(args.output_dir)
+    return manifest_path, output_dir
+
+
+def main():
+    manifest_path, output_dir = parse_arguments()
     create_parquets(manifest_path, output_dir)
 
 
