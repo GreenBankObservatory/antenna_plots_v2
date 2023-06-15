@@ -5,16 +5,17 @@ from collections import defaultdict
 from astropy.table import Table, vstack
 
 
-def group_files(manifest_path: Path):
+def group_files(manifest_path: Path | str):
     """Generates a dictionary grouping FITS file paths with their associated GBT session"""
     
     d: defaultdict[str, list[Path]] = defaultdict(list)
     with open(manifest_path, "r") as file:
-        {d[Path(path).parent.parent.name].append(Path(path.rstrip("\n"))) for path in file}   
+        for path in file:
+             d[Path(path).parent.parent.name].append(Path(path.rstrip("\n"))) 
     return dict(d)
         
 
-def create_session_table(paths: list[Path]):
+def create_session_table(paths: list[Path | str]):
     """Combines antenna positions from a list of FITS files into one dataframe"""
     table_list = []
     for path in paths:
@@ -22,7 +23,7 @@ def create_session_table(paths: list[Path]):
     return vstack(table_list).to_pandas()
 
 
-def create_parquets_dict(antenna_session_manifest_path: Path, output_dir: Path):
+def create_parquets_dict(antenna_session_manifest_path: Path | str, output_dir: Path | str):
     """Generates a tree with output_dir as the root and subdirectories for each session, each containing
     a parquet file with combined antenna position data"""
     
@@ -31,10 +32,10 @@ def create_parquets_dict(antenna_session_manifest_path: Path, output_dir: Path):
     for session in session_dict:
 
         session_dir = Path(output_dir, session)
-        Path.mkdir(session_dir, parents=True, exist_ok=True)
+        session_dir.mkdir(parents=True, exist_ok=True)
 
         sliced_df = create_session_table(session_dict[session])
-        parquet_path = f"{Path(session_dir, session)}.parquet"
+        parquet_path = session_dir / f"{session}.parquet"
         sliced_df.to_parquet(parquet_path)
         print(f"Wrote {parquet_path}")
 
