@@ -54,16 +54,21 @@ def generate_projections(input_file: str, dest: str):
     print(f"Projecting geoviews points: {round(time.perf_counter() - start,2)}s")
 
     ranges = get_ranges()
-    canvas = ds.Canvas(plot_width=2000, plot_height=1000, y_range=(ranges["DECJ2000"].min(), ranges["DECJ2000"].max()))
+    canvas = ds.Canvas(plot_width=2000, plot_height=1000, 
+                       x_range=(ranges["RAJ2000"].min(), ranges["RAJ2000"].max()),
+                       y_range=(ranges["DECJ2000"].min(), ranges["DECJ2000"].max()))
     canvas_points = canvas.points(projected.data, "RAJ2000", "DECJ2000")
 
     ds_image = ds.tf.Image(ds.tf.set_background(ds.tf.shade(canvas_points, cc.bmw), "black"))
-    ds_image.to_pil().save(dest)
+    # ds_image.to_pil().save(dest)
+    # print(f"Wrote {dest}")
+    ds_image.to_pandas().to_parquet(dest)
 
 
 def get_ranges():
     """Returns a table containing the projected ranges for right ascension and declination"""
-    ranges_list = [[0, -90], [180, 90]]
+    ranges_list = [[0, -90], [360, 90]]
+    [ranges_list.append([i, 0]) for i in range(361)]
     ranges_df = pd.DataFrame(ranges_list, columns=["RAJ2000", "DECJ2000"])
     ranges_points = gv.Points(ranges_df, kdims=['RAJ2000', 'DECJ2000'])
     ranges_points = ranges_points.opts(gv.opts.Points(projection=crs.Mollweide()))
