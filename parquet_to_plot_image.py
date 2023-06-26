@@ -1,13 +1,15 @@
 import os
 import time
 import argparse
-import PIL
 
 import datashader as ds
 import pandas as pd
-import colorcet as cc
+import holoviews as hv
+import holoviews.operation.datashader as hd
+hv.extension('bokeh')
 import geoviews as gv
 from cartopy import crs
+import colorcet as cc
 
 def format_bytes(num_bytes: int):
     """Format the given number of bytes using SI unit suffixes
@@ -27,7 +29,7 @@ def format_bytes(num_bytes: int):
         return f"{num_bytes:,.2f} B"
 
 
-def generate_projections(input_file: str, dest: str):
+def generate_projections_static(input_file: str, dest: str):
     """Reads an input parquet file containing GBT antenna positions and plots a map projection of the positions,
     which is saved to the destination path"""
     print(f"File size: {format_bytes(os.path.getsize(input_file))}")
@@ -59,10 +61,20 @@ def generate_projections(input_file: str, dest: str):
                        y_range=(ranges["DECJ2000"].min(), ranges["DECJ2000"].max()))
     canvas_points = canvas.points(projected.data, "RAJ2000", "DECJ2000")
 
-    ds_image = ds.tf.Image(ds.tf.set_background(ds.tf.shade(canvas_points, cc.bmw), "black"))
-    # ds_image.to_pil().save(dest)
-    # print(f"Wrote {dest}")
-    ds_image.to_pandas().to_parquet(dest)
+    ds_image = ds.tf.Image(ds.tf.set_background(ds.tf.shade(canvas_points, cc.rainbow4)))
+    ds_image.to_pil().save(dest)
+    # ds_image.to_pandas().to_parquet(dest)
+    print(f"Wrote {dest}")
+
+
+def generate_projections_dynamic(input_file: str, dest: str):
+    df = pd.read_parquet(input_file, columns=["DMJD", "RAJ2000", "DECJ2000"])
+    df = df[(df["RAJ2000"] >= 0) & (df["RAJ2000"] <= 360)]
+    df = df[(df["DECJ2000"] >= -90) & (df["DECJ2000"] <= 90)]
+    points = gv.Points(df, kdims=['RAJ2000', 'DECJ2000'])
+    dm = hv.DynamicMap(lambda: gv.operation.project_points(points, projection=crs.Mollweide()))
+    shaded = hd.datashade(dm).opts(projection=crs.Mollweide(), global_extent=True, width=1000, height=500)
+    hv.save(shaded, dest)
 
 
 def get_ranges():
@@ -83,7 +95,7 @@ def main():
     args = parser.parse_args()
     input_file = str(args.input_file)
     dest = str(args.dest)
-    generate_projections(input_file, dest)
+    generate_projections_static(input_file, dest)
 
 
 if __name__ == "__main__":

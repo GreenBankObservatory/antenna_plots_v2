@@ -1,10 +1,15 @@
 from pathlib import Path
 import time
 import argparse
+import os
 
 import pandas as pd
 import datashader as ds
 # import xarray as xr
+
+# xr.concat, tf.shade(merged.sum(dim=''))
+# hv.NdOverlay()
+# numpy.stack
 
 def save_image(image: ds.tf.Image, dest_path):
     image.to_pandas().to_parquet(dest_path)
@@ -23,12 +28,6 @@ def stack_images(input_dir, dest_path):
     start = time.perf_counter()
     images = [load_image(path) for path in image_path_list]
     print(f"Loading parquets as images: {time.perf_counter() - start}s")
-
-    # try:
-    #     images = xr.align(*images, join='exact')
-    # except ValueError:
-    #     raise ValueError('RGB inputs to the stack operation could not be aligned; '
-    #         'ensure they share the same grid sampling.')
     
     start = time.perf_counter()
     stacked = ds.tf.stack(*images)
@@ -37,6 +36,15 @@ def stack_images(input_dir, dest_path):
     start = time.perf_counter()
     stacked.to_pil().save(dest_path)
     print(f"Saving image: {time.perf_counter() - start}s")
+
+
+def stack_parquets(input_dir, dest_path):
+    image_path_list = list(Path(input_dir).glob("*.parquet"))
+    print(f"Stacking {image_path_list}")
+    dfs = [pd.read_parquet(path) for path in image_path_list]
+    stacked = pd.concat(dfs, ignore_index=True)
+    stacked.to_parquet("stacked.parquet")
+    os.system(f"python ~/repos/antenna_plots_v2/all_antenna_data.py stacked.parquet {Path(dest_path)}.png")
 
 
 def parse_arguments():
@@ -50,6 +58,7 @@ def parse_arguments():
 def main():
     input_dir, dest_path = parse_arguments()
     stack_images(input_dir, dest_path)
+    # stack_parquets(input_dir, dest_path)
 
 
 if __name__ == "__main__":

@@ -9,8 +9,8 @@ from pathlib import Path
 def generate_images(input_dir: Path | str, dest_dir: Path | str):
     parquet_list = Path(input_dir).glob("**/*/*.parquet")
     for path in parquet_list:
-        os.system(f"python ~/repos/antenna_plots_v2/all_antenna_data.py {path} {Path(dest_dir) / path.stem}.parquet")
-        print(f"Wrote {path.stem}.parquet")
+        os.system(f"python ~/repos/antenna_plots_v2/all_antenna_data.py {path} {Path(dest_dir) / path.stem}.png")
+        print(f"Wrote {path.stem}.png")
 
 
 def parse_arguments():
