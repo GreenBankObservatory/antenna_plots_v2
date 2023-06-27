@@ -1,4 +1,3 @@
-import os
 import time
 import argparse
 
@@ -32,23 +31,20 @@ def format_bytes(num_bytes: int):
 def generate_projections_static(input_file: str, dest: str):
     """Reads an input parquet file containing GBT antenna positions and plots a map projection of the positions,
     which is saved to the destination path"""
-    print(f"File size: {format_bytes(os.path.getsize(input_file))}")
+    # print(f"File size: {format_bytes(os.path.getsize(input_file))}")
 
-    start = time.perf_counter()
+    # start = time.perf_counter()
     df = pd.read_parquet(input_file, columns=["DMJD", "RAJ2000", "DECJ2000"])
-    print(f"Loading parquet file: {round(time.perf_counter() - start, 2)}s")
+    # print(f"Loading parquet file: {round(time.perf_counter() - start, 2)}s")
 
-    print(f"Data frame size: {df.size} rows")
-    print(f"Data frame memory usage: {format_bytes(df.memory_usage(index=True).sum())}")
+    # print(f"Data frame size: {df.size} rows")
+    # print(f"Data frame memory usage: {format_bytes(df.memory_usage(index=True).sum())}")
 
     # remove "invalid" data
     df = df[(df["RAJ2000"] >= 0) & (df["RAJ2000"] <= 360)]
     df = df[(df["DECJ2000"] >= -90) & (df["DECJ2000"] <= 90)]
 
-    start = time.perf_counter()
     points = gv.Points(df, kdims=['RAJ2000', 'DECJ2000'])
-    print(f"Rendering df in geoviews: {round(time.perf_counter() - start, 2)}s")
-
     points = points.opts(gv.opts.Points(projection=crs.Mollweide(), global_extent=True, width=2000, height=1000))
 
     start = time.perf_counter()
@@ -56,25 +52,21 @@ def generate_projections_static(input_file: str, dest: str):
     print(f"Projecting geoviews points: {round(time.perf_counter() - start,2)}s")
 
     ranges = get_ranges()
+
+    start = time.perf_counter()
     canvas = ds.Canvas(plot_width=2000, plot_height=1000, 
                        x_range=(ranges["RAJ2000"].min(), ranges["RAJ2000"].max()),
                        y_range=(ranges["DECJ2000"].min(), ranges["DECJ2000"].max()))
     canvas_points = canvas.points(projected.data, "RAJ2000", "DECJ2000")
+    print(f"Canvas: {round(time.perf_counter() - start, 2)}s")
 
+    start = time.perf_counter()
     ds_image = ds.tf.Image(ds.tf.set_background(ds.tf.shade(canvas_points, cc.rainbow4)))
+    print(f"Image: {round(time.perf_counter() - start, 2)}s")
+
     ds_image.to_pil().save(dest)
     # ds_image.to_pandas().to_parquet(dest)
     print(f"Wrote {dest}")
-
-
-def generate_projections_dynamic(input_file: str, dest: str):
-    df = pd.read_parquet(input_file, columns=["DMJD", "RAJ2000", "DECJ2000"])
-    df = df[(df["RAJ2000"] >= 0) & (df["RAJ2000"] <= 360)]
-    df = df[(df["DECJ2000"] >= -90) & (df["DECJ2000"] <= 90)]
-    points = gv.Points(df, kdims=['RAJ2000', 'DECJ2000'])
-    dm = hv.DynamicMap(lambda: gv.operation.project_points(points, projection=crs.Mollweide()))
-    shaded = hd.datashade(dm).opts(projection=crs.Mollweide(), global_extent=True, width=1000, height=500)
-    hv.save(shaded, dest)
 
 
 def get_ranges():
