@@ -91,7 +91,7 @@ def generate_projection_dynamic(input_file: Path | str, dest: Path | str):
     df = pd.read_parquet(input_file, columns=["DMJD", "RAJ2000", "DECJ2000"])
     df = remove_invalid_data(df)
     projected = project(df)
-    shaded = hd.datashade(projected).opts(projection=crs.Mollweide(), global_extent=True, width=1000, height=500)
+    shaded = hd.dynspread(hd.datashade(projected).opts(projection=crs.Mollweide(), global_extent=True, width=1000, height=500), threshold=1.0)
     hv.save(shaded, dest)
 
 
@@ -107,7 +107,7 @@ def parse_arguments():
     parser.add_argument("input_path", type=Path)
     parser.add_argument("dest_path", type=Path)
     args = parser.parse_args()
-    return args.input_dir, args.dest_dir
+    return args.input_path, args.dest_path
 
 
 def main():
