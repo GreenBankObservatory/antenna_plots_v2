@@ -108,6 +108,7 @@ def parse_arguments():
 
 def main():
     input_path, dest_path = parse_arguments()
+    # TODO: add arguments for different functions
     loop_generate_images(input_path, dest_path)
     # loop_generate_projections_dynamic(input_path, dest_path)
     # loop_save_projected_points(input_path)

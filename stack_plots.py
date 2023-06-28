@@ -1,7 +1,6 @@
 from pathlib import Path
 import time
 import argparse
-import os
 from PIL import Image
 
 import pandas as pd
@@ -11,6 +10,7 @@ import holoviews.operation.datashader as hd
 hv.extension('bokeh')
 import geoviews as gv
 from cartopy import crs
+import colorcet as cc
 
 # xr.concat, tf.shade(merged.sum(dim=''))
 # hv.NdOverlay()
@@ -49,7 +49,7 @@ def stack_images(input_dir, dest_path):
 
 
 def stack_images_png(input_dir, dest_path):
-    """An attempt to stack png files directly... currently doesn't work :("""
+    """An attempt to stack png files directly... don't look"""
     
     image_path_list = list(Path(input_dir).glob("*.png"))
 
@@ -101,25 +101,24 @@ def stack_projected_parquets(input_dir, dest_path):
     stacked = pd.concat(dfs, ignore_index=True)
     print(f"Stacking dfs: {round(time.perf_counter() - start, 2)}s")
 
-    points = gv.Points(stacked, kdims=['RAJ2000', 'DECJ2000'])
+    # points = gv.Points(stacked, kdims=['RAJ2000', 'DECJ2000'])
+    # shaded = hd.datashade(points).opts(projection=crs.Mollweide(), global_extent=True, width=1000, height=500)
+    # hv.save(shaded, dest_path)
 
-    shaded = hd.datashade(points).opts(projection=crs.Mollweide(), global_extent=True, width=1000, height=500)
-    hv.save(shaded, dest_path)
 
+    canvas = ds.Canvas(plot_width=2000, plot_height=1000, 
+                       x_range=(ranges["RAJ2000"].min(), ranges["RAJ2000"].max()),
+                       y_range=(ranges["DECJ2000"].min(), ranges["DECJ2000"].max()))
 
-    # canvas = ds.Canvas(plot_width=2000, plot_height=1000, 
-    #                    x_range=(ranges["RAJ2000"].min(), ranges["RAJ2000"].max()),
-    #                    y_range=(ranges["DECJ2000"].min(), ranges["DECJ2000"].max()))
+    start = time.perf_counter()
+    canvas_points = canvas.points(stacked, "RAJ2000", "DECJ2000")
+    print(f"Canvas points: {round(time.perf_counter() - start, 2)}s")
 
-    # start = time.perf_counter()
-    # canvas_points = canvas.points(stacked, "RAJ2000", "DECJ2000")
-    # print(f"Canvas points: {round(time.perf_counter() - start, 2)}s")
+    start = time.perf_counter()
+    ds_image = ds.tf.Image(ds.tf.set_background(ds.tf.shade(canvas_points, cc.rainbow4)))
+    print(f"Shading image: {round(time.perf_counter() - start, 2)}s")
 
-    # start = time.perf_counter()
-    # ds_image = ds.tf.Image(ds.tf.set_background(ds.tf.shade(canvas_points)))
-    # print(f"Shading image: {round(time.perf_counter() - start, 2)}s")
-
-    # ds_image.to_pil().save(dest_path)
+    ds_image.to_pil().save(dest_path)
 
 
 def parse_arguments():
@@ -132,6 +131,7 @@ def parse_arguments():
 
 def main():
     input_dir, dest_path = parse_arguments()
+    # TODO: add arguments for different functions
     # stack_images(input_dir, dest_path)
     # stack_pos_parquets(input_dir, dest_path)
     stack_projected_parquets(input_dir, dest_path)
