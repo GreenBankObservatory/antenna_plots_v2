@@ -1,3 +1,7 @@
+"""
+Contains several functions: generates static images, projected points parquets, and dynamic plots
+"""
+
 import argparse
 from pathlib import Path
 

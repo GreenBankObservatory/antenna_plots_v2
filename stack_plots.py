@@ -1,3 +1,7 @@
+"""
+Functions to stack plots in various ways
+"""
+
 from pathlib import Path
 import time
 import argparse

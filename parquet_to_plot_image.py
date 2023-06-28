@@ -1,3 +1,7 @@
+"""
+Contains a single function to generate a static plot from a parquet file.
+"""
+
 import time
 import argparse
 
