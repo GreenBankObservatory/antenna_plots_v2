@@ -61,6 +61,9 @@ class AntennaPositionExplorer(param.Parameterized):
         shaded = hd.datashade(projected, cmap=self.param.cmap).opts(projection=crs.Mollweide(), global_extent=True, width=800, height=400)
         return shaded
 
-ant_pos = AntennaPositionExplorer(name="Test Interactive Dashboard")
+ant_pos = AntennaPositionExplorer(name="GBT Antenna Interactive Dashboard")
 widgets = pn.Param(ant_pos.param)
 pn.Row(widgets, ant_pos.view).servable()
+
+# to run:
+# panel serve --show ant_pos_panel_server.py
