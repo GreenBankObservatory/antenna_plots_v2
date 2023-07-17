@@ -1,3 +1,4 @@
+from holoviews.util.transform import df_dim
 import pandas as pd
 
 import panel as pn
@@ -31,30 +32,35 @@ def get_ranges():
 
 def project(df: pd.DataFrame):
     """Returns projected geoviews points from an input dataframe of antenna positions"""
-    points = gv.Points(df, kdims=['RAJ2000', 'DECJ2000'])
+    points = gv.Points(df, kdims=['RAJ2000', 'DECJ2000'], vdims=['Session'])
     points = points.opts(gv.opts.Points(projection=crs.Mollweide(), global_extent=True, width=2000, height=1000))
     projected = gv.operation.project_points(points, projection=crs.Mollweide())
     return projected
 
 
-df = pd.read_parquet("more_sessions.parquet")
-df = remove_invalid_data(df)
+dataset = pd.read_parquet("more_sessions.parquet")
+dataset = remove_invalid_data(dataset)
 cmaps = ['rainbow4','bgy','bgyw','bmy','gray','kbc']
-sessions = df["Session"].unique().tolist()
-sessions.append("ALL")
+sessions = ["ALL"] + dataset["Session"].unique().tolist()
 
 class AntennaPositionExplorer(param.Parameterized):
     cmap = param.ObjectSelector(cm['rainbow4'], objects={c:cm[c] for c in cmaps})
     session = param.ObjectSelector('ALL', objects=sessions)
     # RA/DEC?
 
+    def get_data(self):
+        if self.session == 'ALL':
+            df = dataset.copy()
+        else:
+            df = dataset[dataset['Session'] == self.session].copy()
+        return df
+
     def view(self,**kwargs):
-        dataframe = df
-        # if self.param.session != 'ALL':
-        #     dataframe = df[df['Session'] == self.param.session]
-        projected = project(dataframe)
+        df = self.get_data()
+        projected = project(df)
         shaded = hd.datashade(projected, cmap=self.param.cmap).opts(projection=crs.Mollweide(), global_extent=True, width=800, height=400)
         return shaded
 
 ant_pos = AntennaPositionExplorer(name="Test Interactive Dashboard")
-pn.Row(ant_pos.param, ant_pos.view()).servable()
+widgets = pn.Param(ant_pos.param)
+pn.Row(widgets, ant_pos.view).servable()
