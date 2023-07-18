@@ -46,7 +46,7 @@ sessions = [""] + dataset["Session"].unique().tolist()
 df_size = len(dataset)
 observers = ["", "Will Armentrout", "Emily Moravec", "Thomas Chamberlin", "Cat Catlett"]
 frontends = ["grote", "reber", "karl", "jansky"]
-backends = ["ahoy", "ahoy1", "ahoy2", "ahoy3", "ahooy"]
+backends = ["a", "aa", "aaa", "aaaa", "aaaaa"]
 proc_names = ["", "i'm", "a", "little", "teacup"]
 dataset["Observer"] = np.random.choice(observers, size=df_size)
 dataset["Frontend"] = np.random.choice(frontends, size=df_size)
@@ -73,17 +73,23 @@ class AntennaPositionExplorer(param.Parameterized):
 
     # RA/DEC?
 
+    @param.depends(
+        "session",
+        "observer",
+        "frontend",
+        "backend",
+        "scan_number",
+        "scan_start",
+        "proc_name",
+    )    
     def get_data(self):
         df = dataset[
             (dataset["Session"].str.contains(self.session))
             & (dataset["Observer"].str.contains(self.observer))
             & (dataset["Frontend"].isin(self.frontend))
             & (dataset["Backend"].isin(self.backend))
-            & (
-                dataset["ScanNumber"].isin(
-                    range(self.scan_number[0], self.scan_number[1])
-                )
-            )
+            & (dataset["ScanNumber"] >= self.scan_number[0])
+            & (dataset["ScanNumber"] <= self.scan_number[1])
             & (dataset["ScanStart"] >= self.scan_start[0])
             & (dataset["ScanStart"] <= self.scan_start[1])
             & (dataset["ProcName"].str.contains(self.proc_name))
@@ -97,7 +103,8 @@ class AntennaPositionExplorer(param.Parameterized):
         shaded = hd.datashade(projected, cmap=self.param.cmap).opts(
             projection=crs.Mollweide(), global_extent=True, width=800, height=400
         )
-        return shaded
+        print("hi")
+        return shaded * gv.feature.grid()
 
 
 ant_pos = AntennaPositionExplorer(name="GBT Antenna Interactive Dashboard")
