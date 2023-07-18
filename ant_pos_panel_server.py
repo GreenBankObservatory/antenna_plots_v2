@@ -1,4 +1,6 @@
 import datetime as dt
+
+import numpy as np
 import pandas as pd
 
 import panel as pn
@@ -19,22 +21,9 @@ def remove_invalid_data(df: pd.DataFrame):
     return df
 
 
-def get_ranges():
-    """Returns a table containing the projected ranges for right ascension and declination"""
-    ranges_list = [[0, -90], [360, 90]]
-    [ranges_list.append([i, 0]) for i in range(361)]
-    ranges_df = pd.DataFrame(ranges_list, columns=["RAJ2000", "DECJ2000"])
-    ranges_points = gv.Points(ranges_df, kdims=["RAJ2000", "DECJ2000"])
-    ranges_points = ranges_points.opts(gv.opts.Points(projection=crs.Mollweide()))
-    ranges_projected = gv.operation.project_points(
-        ranges_points, projection=crs.Mollweide()
-    )
-    return ranges_projected.data
-
-
 def project(df: pd.DataFrame):
     """Returns projected geoviews points from an input dataframe of antenna positions"""
-    points = gv.Points(df, kdims=["RAJ2000", "DECJ2000"], vdims=["Session"])
+    points = gv.Points(df, kdims=["RAJ2000", "DECJ2000"])
     points = points.opts(
         gv.opts.Points(
             projection=crs.Mollweide(), global_extent=True, width=2000, height=1000
@@ -44,34 +33,49 @@ def project(df: pd.DataFrame):
     return projected
 
 
-dataset = pd.read_parquet("more_sessions.parquet")
+dataset = pd.read_parquet("fewer_sessions.parquet")
 dataset = remove_invalid_data(dataset)
+
 cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]
 sessions = [""] + dataset["Session"].unique().tolist()
 # frontends = [""] + dataset["Frontend"].unique().tolist()
 # backends = [""] + dataset["Backend"].unique().tolist()
 # proc_names = [""] + dataset["ProcName"].unique().tolist()
 
+# FAKE data
+df_size = len(dataset)
+observers = ["", "Will Armentrout", "Emily Moravec", "Thomas Chamberlin", "Cat Catlett"]
+frontends = ["grote", "reber", "karl", "jansky"]
+backends = ["ahoy", "ahoy1", "ahoy2", "ahoy3", "ahooy"]
+proc_names = ["", "i'm", "a", "little", "teacup"]
+dataset["Observer"] = np.random.choice(observers, size=df_size)
+dataset["Frontend"] = np.random.choice(frontends, size=df_size)
+dataset["Backend"] = np.random.choice(backends, size=df_size)
+# dataset["ProcName"] = np.random.choice(proc_names, size=df_size)
+dataset["ScanNumber"] = np.random.randint(low=0, high=1000, size=df_size)
+dataset["ScanStart"] = [dt.datetime(2007, 4, 24)] * int(df_size / 2) + [
+    dt.datetime(2023, 7, 1)
+] * (df_size - int((len(dataset) / 2)))
 
 class AntennaPositionExplorer(param.Parameterized):
-    cmap = param.ObjectSelector(cm["rainbow4"], objects={c: cm[c] for c in cmaps})
+    cmap = param.Selector(default=cm["rainbow4"], objects={c: cm[c] for c in cmaps})
     session = param.String("")
-    # observer = param.String('')
-    # frontend = param.ObjectSelector('', objects=frontends)
-    # backend = param.ObjectSelector('', objects=backends)
+    observer = param.String("")
+    frontend = param.ListSelector(default=frontends, objects=frontends)
+    backend = param.ListSelector(default=backends, objects=backends)
     # scan_number = param.Range(default=(0,1000), bounds=(0,1000))
     # scan_start = param.Range()
-    # proc_name = param.String('')
+    # proc_name = param.String("")
 
     # RA/DEC?
 
     def get_data(self):
         df = dataset[
             (dataset["Session"].str.contains(self.session))
-            # & (dataset["Observer"].str.contains(self.observer))
-            # & (dataset["Frontend"].isin(self.frontend))
-            # & (dataset["Backend"].isin(self.backend))
-            # & (dataset["ScanNumber"].isin(range(self.scan_number)))
+            & (dataset["Observer"].str.contains(self.observer))
+            & (dataset["Frontend"].isin(self.frontend))
+            & (dataset["Backend"].isin(self.backend))
+            # & (dataset["ScanNumber"].isin(range(self.scan_number[0], self.scan_number[1])))
             # & (dataset["ScanStart"].isin(range(self.scan_start)))
             # & (dataset["ProcName"].str.contains(self.proc_name))
         ].copy()
@@ -95,15 +99,11 @@ widgets = pn.Param(
                 options=sessions, restrict=False, name="Sessions"
             )
         },
-        # "observer": {
-        #     "type": pn.widgets.AutocompleteInput(
-        #         options=observers, restrict=False, name="Observer"
-        #     )
-        # },
-        # "frontend": {
-        #     "type": pn.widgets.MultiSelect(options=frontends, name="Frontends")
-        # },
-        # "backend": {"type": pn.widgets.MultiSelect(options=backends, name="Backends")},
+        "observer": {
+            "type": pn.widgets.AutocompleteInput(
+                options=observers, restrict=False, name="Observer"
+            )
+        },
         # "scan_number": {
         #     "type": pn.widgets.IntRangeSlider(start=0, end=1000, name="Number of scans")
         # },
