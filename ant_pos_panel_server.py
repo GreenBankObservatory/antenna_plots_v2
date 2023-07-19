@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import time
 
 import numpy as np
 import pandas as pd
@@ -31,8 +32,11 @@ def project(points):
     projected = gv.operation.project_points(points, projection=crs.Mollweide())
     return projected
 
+print("Reading the parquet file into memory...")
+start = time.perf_counter()
+dataset = pd.read_parquet("more_sessions.parquet")
+print(f"Elapsed time: {time.perf_counter() - start}s")
 
-dataset = pd.read_parquet("fewer_sessions.parquet")
 dataset = remove_invalid_data(dataset)
 
 cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]
@@ -43,6 +47,8 @@ sessions = [""] + dataset["Session"].unique().tolist()
 
 # FAKE data
 df_size = len(dataset)
+print("Generating fake data...")
+start = time.perf_counter()
 observers = ["", "Will Armentrout", "Emily Moravec", "Thomas Chamberlin", "Cat Catlett"]
 frontends = ["grote", "reber", "karl", "jansky"]
 backends = ["i'm", "a", "little", "teacup"]
@@ -55,6 +61,7 @@ dataset["ScanNumber"] = np.random.randint(low=0, high=1000, size=df_size)
 dataset["ScanStart"] = [datetime(2007, 4, 24)] * int(df_size / 2) + [
     datetime(2023, 7, 1)
 ] * (df_size - int((len(dataset) / 2)))
+print(f"Elapsed time: {time.perf_counter() - start}s")
 
 
 class AntennaPositionExplorer(param.Parameterized):
@@ -82,6 +89,8 @@ class AntennaPositionExplorer(param.Parameterized):
         "proc_name",
     )
     def points(self):
+        print("Generating geoviews points...")
+        start = time.perf_counter()
         points = gv.Points(
             dataset,
             kdims=["RAJ2000", "DECJ2000"],
@@ -95,11 +104,16 @@ class AntennaPositionExplorer(param.Parameterized):
                 "ScanStart",
             ],
         )
+        print(f"Elapsed time: {time.perf_counter() - start}s")
+
+        print("Selecting data...")
+        start = time.perf_counter()
         sessions_list = (
             dataset[dataset["Session"].str.contains(self.session)]["Session"]
             .unique()
             .tolist()
         )
+        print(f"Generating sessions list: {time.perf_counter() - start}s")
         points = points.select(
             Session=sessions_list,
             Frontend=self.frontend,
@@ -111,17 +125,20 @@ class AntennaPositionExplorer(param.Parameterized):
             points = points.select(Observer=self.observer)
         if self.proc_name:
             points = points.select(ProcName=self.proc_name)
+        print(f"Elapsed time: {time.perf_counter() - start}s")
+
         return project(points)
 
     def view(self, **kwargs):
         points = hv.DynamicMap(self.points)
+        print("Rasterizing and shading plot...")
+        start = time.perf_counter()
         agg = hd.rasterize(
             points,
             # x_sampling=1,
             # y_sampling=1,
         )
-        return (
-            hd.shade(agg, cmap=self.param.cmap).opts(
+        plot = (hd.shade(agg, cmap=self.param.cmap).opts(
                 projection=crs.Mollweide(),
                 global_extent=True,
                 width=800,
@@ -129,9 +146,13 @@ class AntennaPositionExplorer(param.Parameterized):
             )
             * gv.feature.grid()
         )
+        print(f"Elapsed time: {time.perf_counter() - start}s")
+        return plot
 
 
 ant_pos = AntennaPositionExplorer(name="GBT Antenna Interactive Dashboard")
+print("Generating widgets...")
+start = time.perf_counter()
 widgets = pn.Param(
     ant_pos.param,
     widgets={
@@ -160,6 +181,7 @@ widgets = pn.Param(
         },
     },
 )
+print(f"Elapsed time: {time.perf_counter() - start}s")
 pn.Row(widgets, ant_pos.view()).servable()
 
 # to run:
