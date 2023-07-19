@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 import time
 
-import numpy as np
 import pandas as pd
 
 import panel as pn
@@ -35,10 +34,11 @@ def project(points):
 
 print("Reading the parquet file into memory...")
 start = time.perf_counter()
-dataset = pd.read_parquet("more_sessions.parquet")
+dataset = pd.read_parquet("fake_data.parquet")
 print(f"Elapsed time: {time.perf_counter() - start}s")
 
 dataset = remove_invalid_data(dataset)
+dataset = dataset.set_index("Session", drop=False)
 
 cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]
 sessions = [""] + dataset["Session"].unique().tolist()
@@ -47,22 +47,25 @@ sessions = [""] + dataset["Session"].unique().tolist()
 # proc_names = [""] + dataset["ProcName"].unique().tolist()
 
 # FAKE data
-df_size = len(dataset)
-print("Generating fake data...")
-start = time.perf_counter()
 observers = ["", "Will Armentrout", "Emily Moravec", "Thomas Chamberlin", "Cat Catlett"]
 frontends = ["grote", "reber", "karl", "jansky"]
 backends = ["i'm", "a", "little", "teacup"]
 proc_names = ["", "a", "aa", "aaa", "aaaa", "aaaaa"]
-dataset["Observer"] = np.random.choice(observers, size=df_size)
-dataset["Frontend"] = np.random.choice(frontends, size=df_size)
-dataset["Backend"] = np.random.choice(backends, size=df_size)
-dataset["ProcName"] = np.random.choice(proc_names, size=df_size)
-dataset["ScanNumber"] = np.random.randint(low=0, high=1000, size=df_size)
-dataset["ScanStart"] = [datetime(2007, 4, 24)] * int(df_size / 2) + [
-    datetime(2023, 7, 1)
-] * (df_size - int((len(dataset) / 2)))
-print(f"Elapsed time: {time.perf_counter() - start}s")
+
+all_points = gv.Points(
+            dataset,
+            kdims=["RAJ2000", "DECJ2000"],
+            vdims=[
+                "Session",
+                "Observer",
+                "Frontend",
+                "Backend",
+                "ProcName",
+                "ScanNumber",
+                "ScanStart",
+            ],
+        )
+projected = project(all_points)
 
 
 class AntennaPositionExplorer(param.Parameterized):
@@ -90,42 +93,35 @@ class AntennaPositionExplorer(param.Parameterized):
         "proc_name",
     )
     def points(self):
-        print("Generating geoviews points...")
-        start = time.perf_counter()
-        points = gv.Points(
-            dataset,
-            kdims=["RAJ2000", "DECJ2000"],
-            vdims=[
-                "Session",
-                "Observer",
-                "Frontend",
-                "Backend",
-                "ProcName",
-                "ScanNumber",
-                "ScanStart",
-            ],
-        )
-        print(f"Elapsed time: {time.perf_counter() - start}s")
 
         print("Selecting data...")
         start = time.perf_counter()
-        sessions_list = list(
-            filter(lambda session: self.session in session, sessions)
-        )
-        points = points.select(
-            Session=sessions_list,
+        selected_points = projected.select(
             Frontend=self.frontend,
             Backend=self.backend,
             ScanNumber=self.scan_number,
             ScanStart=self.scan_start,
         )
+        if self.session:
+            sessions_list = [session for session in sessions if self.session in session]
+            selected_points = selected_points.select(Session=sessions_list)
         if self.observer:
-            points = points.select(Observer=self.observer)
+            selected_points = selected_points.select(Observer=self.observer)
         if self.proc_name:
-            points = points.select(ProcName=self.proc_name)
+            selected_points = selected_points.select(ProcName=self.proc_name)
+        # if self.frontend:
+        #     selected_points = selected_points.select(Frontend=self.frontend)
+        # if self.backend:
+        #     selected_points = selected_points.select(Backend=self.backend)
         print(f"Elapsed time: {time.perf_counter() - start}s")
 
-        return project(points)
+        # print("Projecting data...")
+        # start = time.perf_counter()
+        # projected = project(selected_points)
+        # print(f"Elapsed time: {time.perf_counter() - start}s")
+        # return projected
+        return selected_points
+
 
     def view(self, **kwargs):
         points = hv.DynamicMap(self.points)
@@ -181,7 +177,16 @@ widgets = pn.Param(
     },
 )
 print(f"Elapsed time: {time.perf_counter() - start}s")
-pn.Row(widgets, ant_pos.view()).servable()
+
+template = pn.template.BootstrapTemplate(
+    title='GBT Antenna Data Interactive Dashboard',
+    sidebar=widgets,
+    theme=pn.template.DarkTheme,
+)
+template.main.append(
+    pn.Row(ant_pos.view())
+)
+template.servable();
 
 # to run:
 # panel serve --show ant_pos_panel_server.py
