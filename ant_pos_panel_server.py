@@ -32,6 +32,7 @@ def project(points):
     projected = gv.operation.project_points(points, projection=crs.Mollweide())
     return projected
 
+
 print("Reading the parquet file into memory...")
 start = time.perf_counter()
 dataset = pd.read_parquet("more_sessions.parquet")
@@ -108,12 +109,9 @@ class AntennaPositionExplorer(param.Parameterized):
 
         print("Selecting data...")
         start = time.perf_counter()
-        sessions_list = (
-            dataset[dataset["Session"].str.contains(self.session)]["Session"]
-            .unique()
-            .tolist()
+        sessions_list = list(
+            filter(lambda session: self.session in session, sessions)
         )
-        print(f"Generating sessions list: {time.perf_counter() - start}s")
         points = points.select(
             Session=sessions_list,
             Frontend=self.frontend,
@@ -138,7 +136,8 @@ class AntennaPositionExplorer(param.Parameterized):
             # x_sampling=1,
             # y_sampling=1,
         )
-        plot = (hd.shade(agg, cmap=self.param.cmap).opts(
+        plot = (
+            hd.shade(agg, cmap=self.param.cmap).opts(
                 projection=crs.Mollweide(),
                 global_extent=True,
                 width=800,
