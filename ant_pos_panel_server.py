@@ -1,4 +1,4 @@
-import datetime as dt
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -21,9 +21,8 @@ def remove_invalid_data(df: pd.DataFrame):
     return df
 
 
-def project(df: pd.DataFrame):
+def project(points):
     """Returns projected geoviews points from an input dataframe of antenna positions"""
-    points = gv.Points(df, kdims=["RAJ2000", "DECJ2000"])
     points = points.opts(
         gv.opts.Points(
             projection=crs.Mollweide(), global_extent=True, width=2000, height=1000
@@ -46,15 +45,15 @@ sessions = [""] + dataset["Session"].unique().tolist()
 df_size = len(dataset)
 observers = ["", "Will Armentrout", "Emily Moravec", "Thomas Chamberlin", "Cat Catlett"]
 frontends = ["grote", "reber", "karl", "jansky"]
-backends = ["a", "aa", "aaa", "aaaa", "aaaaa"]
-proc_names = ["", "i'm", "a", "little", "teacup"]
+backends = ["i'm", "a", "little", "teacup"]
+proc_names = ["", "a", "aa", "aaa", "aaaa", "aaaaa"]
 dataset["Observer"] = np.random.choice(observers, size=df_size)
 dataset["Frontend"] = np.random.choice(frontends, size=df_size)
 dataset["Backend"] = np.random.choice(backends, size=df_size)
 dataset["ProcName"] = np.random.choice(proc_names, size=df_size)
 dataset["ScanNumber"] = np.random.randint(low=0, high=1000, size=df_size)
-dataset["ScanStart"] = [dt.datetime(2007, 4, 24)] * int(df_size / 2) + [
-    dt.datetime(2023, 7, 1)
+dataset["ScanStart"] = [datetime(2007, 4, 24)] * int(df_size / 2) + [
+    datetime(2023, 7, 1)
 ] * (df_size - int((len(dataset) / 2)))
 
 
@@ -66,8 +65,8 @@ class AntennaPositionExplorer(param.Parameterized):
     backend = param.ListSelector(default=backends, objects=backends)
     scan_number = param.Range(default=(0, 1000), bounds=(0, 1000))
     scan_start = param.DateRange(
-        default=(dt.datetime(2002, 1, 1), dt.datetime(2023, 7, 17)),
-        bounds=(dt.datetime(2002, 1, 1), dt.datetime.today()),
+        default=(datetime(2002, 1, 1), datetime(2023, 7, 17)),
+        bounds=(datetime(2002, 1, 1), datetime.today()),
     )
     proc_name = param.String("")
 
@@ -81,30 +80,55 @@ class AntennaPositionExplorer(param.Parameterized):
         "scan_number",
         "scan_start",
         "proc_name",
-    )    
-    def get_data(self):
-        df = dataset[
-            (dataset["Session"].str.contains(self.session))
-            & (dataset["Observer"].str.contains(self.observer))
-            & (dataset["Frontend"].isin(self.frontend))
-            & (dataset["Backend"].isin(self.backend))
-            & (dataset["ScanNumber"] >= self.scan_number[0])
-            & (dataset["ScanNumber"] <= self.scan_number[1])
-            & (dataset["ScanStart"] >= self.scan_start[0])
-            & (dataset["ScanStart"] <= self.scan_start[1])
-            & (dataset["ProcName"].str.contains(self.proc_name))
-        ].copy()
-        print(df)
-        return df
+    )
+    def points(self):
+        points = gv.Points(
+            dataset,
+            kdims=["RAJ2000", "DECJ2000"],
+            vdims=[
+                "Session",
+                "Observer",
+                "Frontend",
+                "Backend",
+                "ProcName",
+                "ScanNumber",
+                "ScanStart",
+            ],
+        )
+        sessions_list = (
+            dataset[dataset["Session"].str.contains(self.session)]["Session"]
+            .unique()
+            .tolist()
+        )
+        points = points.select(
+            Session=sessions_list,
+            Frontend=self.frontend,
+            Backend=self.backend,
+            ScanNumber=self.scan_number,
+            ScanStart=self.scan_start,
+        )
+        if self.observer:
+            points = points.select(Observer=self.observer)
+        if self.proc_name:
+            points = points.select(ProcName=self.proc_name)
+        return project(points)
 
     def view(self, **kwargs):
-        df = self.get_data()
-        projected = project(df)
-        shaded = hd.datashade(projected, cmap=self.param.cmap).opts(
-            projection=crs.Mollweide(), global_extent=True, width=800, height=400
+        points = hv.DynamicMap(self.points)
+        agg = hd.rasterize(
+            points,
+            # x_sampling=1,
+            # y_sampling=1,
         )
-        print("hi")
-        return shaded * gv.feature.grid()
+        return (
+            hd.shade(agg, cmap=self.param.cmap).opts(
+                projection=crs.Mollweide(),
+                global_extent=True,
+                width=800,
+                height=400,
+            )
+            * gv.feature.grid()
+        )
 
 
 ant_pos = AntennaPositionExplorer(name="GBT Antenna Interactive Dashboard")
@@ -122,21 +146,21 @@ widgets = pn.Param(
             )
         },
         "scan_start": {
-            "type": pn.widgets.DatetimeRangeInput(
-                start=dt.datetime(2002, 1, 1),
-                end=dt.datetime.today(),
-                value=(dt.datetime(2002, 1, 1), dt.datetime(2023, 7, 17)),
-                name="Date and time of scan",
+            "type": pn.widgets.DatetimeRangePicker(
+                start=datetime(2002, 1, 1),
+                end=datetime.today(),
+                value=(datetime(2002, 1, 1), datetime.today() - timedelta(days=1)),
+                name="Date and time of first scan",
             )
         },
         "proc_name": {
             "type": pn.widgets.AutocompleteInput(
-                options=proc_names, restrict=False, min_characters=0, name="Proc names?"
+                options=proc_names, restrict=False, min_characters=1, name="Proc names?"
             )
         },
     },
 )
-pn.Row(widgets, ant_pos.view).servable()
+pn.Row(widgets, ant_pos.view()).servable()
 
 # to run:
 # panel serve --show ant_pos_panel_server.py
