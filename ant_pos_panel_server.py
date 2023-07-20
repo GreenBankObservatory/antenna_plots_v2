@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import time
 
 import pandas as pd
+from pandas.core.frame import check_key_length
 
 import panel as pn
 import holoviews as hv
@@ -34,7 +35,7 @@ def project(points):
 
 print("Reading the parquet file into memory...")
 start = time.perf_counter()
-dataset = pd.read_parquet("multiindexed.parquet")
+dataset = pd.read_parquet("sorted_multiindexed.parquet")
 print(f"Elapsed time: {time.perf_counter() - start}s")
 
 # all_points = gv.Points(
@@ -50,10 +51,11 @@ print(f"Elapsed time: {time.perf_counter() - start}s")
 #         "ScanStart",
 #     ],
 # )
-projected = project(all_points)
+# projected = project(all_points)
 
 cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]
-sessions = [""] + dataset["Session"].unique().tolist()
+# sessions = dataset["Session"].unique().tolist()
+sessions = [""] + dataset.index.get_level_values(1).unique().tolist()
 # frontends = dataset["Frontend"].unique().tolist()
 # backends = dataset["Backend"].unique().tolist()
 # proc_names = [""] + dataset["ProcName"].unique().tolist()
@@ -92,15 +94,35 @@ class AntennaPositionExplorer(param.Parameterized):
     def points(self):
         print("Selecting data...")
         start = time.perf_counter()
-        filtered = dataset.loc[
-            # self.session,
-            self.observer,
-            # self.frontend,
-            # self.backend,
-            # self.scan_number,
-            # self.scan_start,
-            # self.proc_name,
-        ]
+        # breakpoint()
+        filtered = dataset
+        if self.session:
+            checkpoint = time.perf_counter()
+            filtered = filtered.loc[pd.IndexSlice[:, self.session], :]
+            print(f"Filter by session: {time.perf_counter() - checkpoint}s")
+        if self.observer:
+            checkpoint = time.perf_counter()
+            # filtered = filtered.loc[pd.IndexSlice[self.observer], :] # drops level
+            filtered = filtered.xs(self.observer, level=0, drop_level=False)
+            print(f"Filter by observer: {time.perf_counter() - checkpoint}s")
+        if self.proc_name:
+            checkpoint = time.perf_counter()
+            filtered = filtered.loc[pd.IndexSlice[:, :, :, :, self.proc_name], :]
+            print(f"Filter by proc_name: {time.perf_counter() - checkpoint}s")
+        # checkpoint = time.perf_counter()
+        # filtered = filtered.loc[
+        #     pd.IndexSlice[
+        #         :,
+        #         :,
+        #         self.frontend,
+        #         self.backend,
+        #         # self.scan_number,
+        #         # self.scan_start,
+        #         # self.proc_name,
+        #     ],
+        #     :,
+        # ]
+        # print(f"Filter by front/backend: {time.perf_counter() - checkpoint}s")
         print(f"Elapsed time: {time.perf_counter() - start}s")
         points = gv.Points(filtered, kdims=["RAJ2000", "DECJ2000"])
         return points
@@ -127,12 +149,12 @@ class AntennaPositionExplorer(param.Parameterized):
         start = time.perf_counter()
         agg = hd.rasterize(
             points,
-            # x_sampling=1,
-            # y_sampling=1,
+            x_sampling=1,
+            y_sampling=1,
         )
         plot = (
             hd.shade(agg, cmap=self.param.cmap).opts(
-                projection=crs.Mollweide(),
+                # projection=crs.Mollweide(),
                 global_extent=True,
                 width=800,
                 height=400,
@@ -156,7 +178,7 @@ widgets = pn.Param(
         },
         "observer": {
             "type": pn.widgets.AutocompleteInput(
-                value="Will Armentrout", options=observers, name="Observer"
+                value="", options=observers, name="Observer"
             )
         },
         "scan_start": {
