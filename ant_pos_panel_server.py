@@ -34,22 +34,22 @@ def project(points):
 
 print("Reading the parquet file into memory...")
 start = time.perf_counter()
-dataset = pd.read_parquet("fake_data.parquet")
+dataset = pd.read_parquet("multiindexed.parquet")
 print(f"Elapsed time: {time.perf_counter() - start}s")
 
-all_points = gv.Points(
-    dataset,
-    kdims=["RAJ2000", "DECJ2000"],
-    vdims=[
-        "Session",
-        "Observer",
-        "Frontend",
-        "Backend",
-        "ProcName",
-        "ScanNumber",
-        "ScanStart",
-    ],
-)
+# all_points = gv.Points(
+#     dataset,
+#     kdims=["RAJ2000", "DECJ2000"],
+#     vdims=[
+#         "Session",
+#         "Observer",
+#         "Frontend",
+#         "Backend",
+#         "ProcName",
+#         "ScanNumber",
+#         "ScanStart",
+#     ],
+# )
 projected = project(all_points)
 
 cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]
@@ -92,23 +92,31 @@ class AntennaPositionExplorer(param.Parameterized):
     def points(self):
         print("Selecting data...")
         start = time.perf_counter()
-        selected_points = projected.select(
-            Frontend=self.frontend,
-            Backend=self.backend,
-            ScanNumber=self.scan_number,
-            ScanStart=self.scan_start,
-        )
-        if self.session:
-            sessions_list = [session for session in sessions if self.session in session]
-            selected_points = selected_points.select(Session=sessions_list)
-        if self.observer:
-            selected_points = selected_points.select(Observer=self.observer)
-        if self.proc_name:
-            selected_points = selected_points.select(ProcName=self.proc_name)
-        # if self.frontend:
-        #     selected_points = selected_points.select(Frontend=self.frontend)
-        # if self.backend:
-        #     selected_points = selected_points.select(Backend=self.backend)
+        filtered = dataset.loc[
+            # self.session,
+            self.observer,
+            # self.frontend,
+            # self.backend,
+            # self.scan_number,
+            # self.scan_start,
+            # self.proc_name,
+        ]
+        print(f"Elapsed time: {time.perf_counter() - start}s")
+        points = gv.Points(filtered, kdims=["RAJ2000", "DECJ2000"])
+        return points
+        # selected_points = projected.select(
+        #     Frontend=self.frontend,
+        #     Backend=self.backend,
+        #     ScanNumber=self.scan_number,
+        #     ScanStart=self.scan_start,
+        # )
+        # if self.session:
+        #     sessions_list = [session for session in sessions if self.session in session]
+        #     selected_points = selected_points.select(Session=sessions_list)
+        # if self.observer:
+        #     selected_points = selected_points.select(Observer=self.observer)
+        # if self.proc_name:
+        #     selected_points = selected_points.select(ProcName=self.proc_name)
         print(f"Elapsed time: {time.perf_counter() - start}s")
 
         return selected_points
@@ -148,7 +156,7 @@ widgets = pn.Param(
         },
         "observer": {
             "type": pn.widgets.AutocompleteInput(
-                options=observers, restrict=False, name="Observer"
+                value="Will Armentrout", options=observers, name="Observer"
             )
         },
         "scan_start": {
