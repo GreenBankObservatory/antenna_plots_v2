@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 import time
 
 import pandas as pd
-from pandas.core.frame import check_key_length
 
 import panel as pn
 import holoviews as hv
@@ -35,7 +34,7 @@ def project(points):
 
 print("Reading the parquet file into memory...")
 start = time.perf_counter()
-dataset = pd.read_parquet("sorted_multiindexed.parquet")
+dataset = pd.read_parquet("/home/scratch/kwei/misc_parquets/swapped_sorted_multiindexed.parquet")
 print(f"Elapsed time: {time.perf_counter() - start}s")
 
 # all_points = gv.Points(
@@ -65,6 +64,9 @@ observers = ["", "Will Armentrout", "Emily Moravec", "Thomas Chamberlin", "Cat C
 frontends = ["grote", "reber", "karl", "jansky"]
 backends = ["i'm", "a", "little", "teacup"]
 proc_names = ["", "a", "aa", "aaa", "aaaa", "aaaaa"]
+
+scan_numbers = dataset.index.get_level_values("ScanNumber")
+scan_starts = dataset.index.get_level_values("ScanStart")
 
 
 class AntennaPositionExplorer(param.Parameterized):
@@ -98,17 +100,26 @@ class AntennaPositionExplorer(param.Parameterized):
         filtered = dataset
         if self.session:
             checkpoint = time.perf_counter()
-            filtered = filtered.loc[pd.IndexSlice[:, self.session], :]
+            filtered = filtered.xs(self.session, level=0, drop_level=False)
             print(f"Filter by session: {time.perf_counter() - checkpoint}s")
         if self.observer:
             checkpoint = time.perf_counter()
-            # filtered = filtered.loc[pd.IndexSlice[self.observer], :] # drops level
-            filtered = filtered.xs(self.observer, level=0, drop_level=False)
+            filtered = filtered.loc[pd.IndexSlice[:, self.observer], :]
             print(f"Filter by observer: {time.perf_counter() - checkpoint}s")
         if self.proc_name:
             checkpoint = time.perf_counter()
             filtered = filtered.loc[pd.IndexSlice[:, :, :, :, self.proc_name], :]
             print(f"Filter by proc_name: {time.perf_counter() - checkpoint}s")
+        if self.scan_number != (0, 1000):
+            checkpoint = time.perf_counter()
+            scan_numbers = filtered.index.get_level_values("ScanNumber")
+            filtered = filtered[(scan_numbers>= self.scan_number[0]) & (scan_numbers < self.scan_number[1])]
+            print(f"Filter by scan_number: {time.perf_counter() - checkpoint}s")
+        if self.scan_start != (datetime(2002, 1, 1), datetime.today() - timedelta(days=1)):
+            checkpoint = time.perf_counter()
+            scan_starts = filtered.index.get_level_values("ScanStart")
+            filtered = filtered[(scan_starts >= self.scan_start[0]) & (scan_starts < self.scan_start[1])]
+            print(f"Filter by scan_start: {time.perf_counter() - checkpoint}s")
         # checkpoint = time.perf_counter()
         # filtered = filtered.loc[
         #     pd.IndexSlice[
@@ -139,9 +150,9 @@ class AntennaPositionExplorer(param.Parameterized):
         #     selected_points = selected_points.select(Observer=self.observer)
         # if self.proc_name:
         #     selected_points = selected_points.select(ProcName=self.proc_name)
-        print(f"Elapsed time: {time.perf_counter() - start}s")
+        # print(f"Elapsed time: {time.perf_counter() - start}s")
 
-        return selected_points
+        # return selected_points
 
     def view(self, **kwargs):
         points = hv.DynamicMap(self.points)
