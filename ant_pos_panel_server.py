@@ -24,17 +24,10 @@ print(f"Elapsed time: {time.perf_counter() - start}s")
 
 cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]
 sessions = dataset.index.get_level_values("Session").unique().tolist()
-# FAKE data
-observers = [
-    "All",
-    "Will Armentrout",
-    "Emily Moravec",
-    "Thomas Chamberlin",
-    "Cat Catlett",
-]
-frontends = ["grote", "reber", "karl", "jansky"]
-backends = ["i'm", "a", "little", "teacup"]
-proc_names = ["All", "a", "aa", "aaa", "aaaa", "aaaaa"]
+observers = ["All"] + dataset.index.get_level_values("Observer").unique().tolist()
+frontends = dataset.index.get_level_values("Frontend").unique().tolist()
+backends = dataset.index.get_level_values("Backend").unique().tolist()
+proc_names = ["All"] + dataset.index.get_level_values("ProcName").unique().tolist()
 cur_datetime = datetime.today()
 
 
