@@ -12,6 +12,7 @@ from colorcet import cm
 import param
 
 hv.extension("bokeh", logo=False)
+hv.config(future_deprecations=False)
 
 
 def remove_invalid_data(df: pd.DataFrame):
@@ -65,8 +66,7 @@ frontends = ["grote", "reber", "karl", "jansky"]
 backends = ["i'm", "a", "little", "teacup"]
 proc_names = ["", "a", "aa", "aaa", "aaaa", "aaaaa"]
 
-scan_numbers = dataset.index.get_level_values("ScanNumber")
-scan_starts = dataset.index.get_level_values("ScanStart")
+cur_datetime = datetime.today()
 
 
 class AntennaPositionExplorer(param.Parameterized):
@@ -77,8 +77,8 @@ class AntennaPositionExplorer(param.Parameterized):
     backend = param.ListSelector(default=backends, objects=backends)
     scan_number = param.Range(default=(0, 1000), bounds=(0, 1000))
     scan_start = param.DateRange(
-        default=(datetime(2002, 1, 1), datetime(2023, 7, 17)),
-        bounds=(datetime(2002, 1, 1), datetime.today()),
+        default=(datetime(2002, 1, 1), cur_datetime - timedelta(days=1)),
+        bounds=(datetime(2002, 1, 1), cur_datetime),
     )
     proc_name = param.String("")
 
@@ -115,7 +115,7 @@ class AntennaPositionExplorer(param.Parameterized):
             scan_numbers = filtered.index.get_level_values("ScanNumber")
             filtered = filtered[(scan_numbers>= self.scan_number[0]) & (scan_numbers < self.scan_number[1])]
             print(f"Filter by scan_number: {time.perf_counter() - checkpoint}s")
-        if self.scan_start != (datetime(2002, 1, 1), datetime.today() - timedelta(days=1)):
+        if self.scan_start != (datetime(2002, 1, 1), cur_datetime - timedelta(days=1)):
             checkpoint = time.perf_counter()
             scan_starts = filtered.index.get_level_values("ScanStart")
             filtered = filtered[(scan_starts >= self.scan_start[0]) & (scan_starts < self.scan_start[1])]
@@ -194,8 +194,8 @@ widgets = pn.Param(
         "scan_start": {
             "type": pn.widgets.DatetimeRangePicker(
                 start=datetime(2002, 1, 1),
-                end=datetime.today(),
-                value=(datetime(2002, 1, 1), datetime.today() - timedelta(days=1)),
+                end=cur_datetime,
+                value=(datetime(2002, 1, 1), cur_datetime - timedelta(days=1)),
                 name="Date and time of first scan",
             )
         },
