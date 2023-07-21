@@ -14,57 +14,27 @@ import param
 hv.extension("bokeh", logo=False)
 
 
-def remove_invalid_data(df: pd.DataFrame):
-    """Removes data lying outside (0, 360) degrees RA and (-90, 90) degrees declination"""
-    df = df[(df["RAJ2000"] >= 0) & (df["RAJ2000"] <= 360)]
-    df = df[(df["DECJ2000"] >= -90) & (df["DECJ2000"] <= 90)]
-    return df
-
-
-def project(points):
-    """Returns projected geoviews points from an input dataframe of antenna positions"""
-    points = points.opts(
-        gv.opts.Points(
-            projection=crs.Mollweide(), global_extent=True, width=2000, height=1000
-        )
-    )
-    projected = gv.operation.project_points(points, projection=crs.Mollweide())
-    return projected
-
-
 print("Reading the parquet file into memory...")
 start = time.perf_counter()
-dataset = pd.read_parquet("/home/scratch/kwei/misc_parquets/multiindex_projection.parquet")
+dataset = pd.read_parquet(
+    "/home/scratch/kwei/misc_parquets/multiindex_projection.parquet"
+)
 print(f"Elapsed time: {time.perf_counter() - start}s")
 
-# all_points = gv.Points(
-#     dataset,
-#     kdims=["RAJ2000", "DECJ2000"],
-#     vdims=[
-#         "Session",
-#         "Observer",
-#         "Frontend",
-#         "Backend",
-#         "ProcName",
-#         "ScanNumber",
-#         "ScanStart",
-#     ],
-# )
-# projected = project(all_points)
 
 cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]
-# sessions = dataset["Session"].unique().tolist()
-sessions = [""] + dataset.index.get_level_values(1).unique().tolist()
-# frontends = dataset["Frontend"].unique().tolist()
-# backends = dataset["Backend"].unique().tolist()
-# proc_names = [""] + dataset["ProcName"].unique().tolist()
-
+sessions = dataset.index.get_level_values("Session").unique().tolist()
 # FAKE data
-observers = ["All", "Will Armentrout", "Emily Moravec", "Thomas Chamberlin", "Cat Catlett"]
+observers = [
+    "All",
+    "Will Armentrout",
+    "Emily Moravec",
+    "Thomas Chamberlin",
+    "Cat Catlett",
+]
 frontends = ["grote", "reber", "karl", "jansky"]
 backends = ["i'm", "a", "little", "teacup"]
 proc_names = ["All", "a", "aa", "aaa", "aaaa", "aaaaa"]
-
 cur_datetime = datetime.today()
 
 
@@ -95,11 +65,14 @@ class AntennaPositionExplorer(param.Parameterized):
     def points(self):
         print("Selecting data...")
         start = time.perf_counter()
-        # breakpoint()
         filtered = dataset
         if self.session:
             checkpoint = time.perf_counter()
-            filtered = filtered.xs(self.session, level=0, drop_level=False)
+            if self.session in sessions:
+                filtered = filtered.xs(self.session, level=0, drop_level=False)
+            else:
+                cur_sessions = filtered.index.get_level_values("Session")
+                filtered = filtered[cur_sessions.str.contains(self.session)]
             print(f"Filter by session: {time.perf_counter() - checkpoint}s")
         if self.observer != "All":
             print(self.observer)
@@ -113,12 +86,17 @@ class AntennaPositionExplorer(param.Parameterized):
         if self.scan_number != (0, 1000):
             checkpoint = time.perf_counter()
             scan_numbers = filtered.index.get_level_values("ScanNumber")
-            filtered = filtered[(scan_numbers >= self.scan_number[0]) & (scan_numbers < self.scan_number[1])]
+            filtered = filtered[
+                (scan_numbers >= self.scan_number[0])
+                & (scan_numbers < self.scan_number[1])
+            ]
             print(f"Filter by scan_number: {time.perf_counter() - checkpoint}s")
         if self.scan_start != (datetime(2002, 1, 1), cur_datetime - timedelta(days=1)):
             checkpoint = time.perf_counter()
             scan_starts = filtered.index.get_level_values("ScanStart")
-            filtered = filtered[(scan_starts >= self.scan_start[0]) & (scan_starts < self.scan_start[1])]
+            filtered = filtered[
+                (scan_starts >= self.scan_start[0]) & (scan_starts < self.scan_start[1])
+            ]
             print(f"Filter by scan_start: {time.perf_counter() - checkpoint}s")
         if self.frontend != frontends:
             checkpoint = time.perf_counter()
@@ -130,22 +108,10 @@ class AntennaPositionExplorer(param.Parameterized):
             cur_backends = filtered.index.get_level_values("Backend")
             filtered = filtered[cur_backends.isin(self.backend)]
             print(f"Filter by backend: {time.perf_counter() - checkpoint}s")
-        # checkpoint = time.perf_counter()
-        # filtered = filtered.loc[
-        #     pd.IndexSlice[
-        #         :,
-        #         :,
-        #         self.frontend,
-        #         self.backend,
-        #         # self.scan_number,
-        #         # self.scan_start,
-        #         # self.proc_name,
-        #     ],
-        #     :,
-        # ]
-        # print(f"Filter by front/backend: {time.perf_counter() - checkpoint}s")
         print(f"Elapsed time: {time.perf_counter() - start}s")
-        points = gv.Points(filtered, kdims=["x_position", "y_position"], crs=crs.Mollweide())
+        points = gv.Points(
+            filtered, kdims=["x_position", "y_position"], crs=crs.Mollweide()
+        )
         points = points.opts(
             gv.opts.Points(
                 projection=crs.Mollweide(), global_extent=True, width=800, height=400
@@ -183,7 +149,11 @@ widgets = pn.Param(
     widgets={
         "session": {
             "type": pn.widgets.AutocompleteInput(
-                options=sessions, restrict=False, name="Sessions"
+                options=sessions,
+                value="",
+                restrict=False,
+                min_characters=1,
+                name="Sessions",
             )
         },
         "observer": {
