@@ -120,6 +120,17 @@ class AntennaPositionExplorer(param.Parameterized):
             scan_starts = filtered.index.get_level_values("ScanStart")
             filtered = filtered[(scan_starts >= self.scan_start[0]) & (scan_starts < self.scan_start[1])]
             print(f"Filter by scan_start: {time.perf_counter() - checkpoint}s")
+        if self.frontend != frontends:
+            checkpoint = time.perf_counter()
+            cur_frontends = filtered.index.get_level_values("Frontend")
+            filtered = filtered[cur_frontends.isin(self.frontend)]
+            print(f"Filter by frontend: {time.perf_counter() - checkpoint}s")
+        if self.backend != backends:
+            checkpoint = time.perf_counter()
+            cur_backends = filtered.index.get_level_values("Backend")
+            filtered = filtered[cur_backends.isin(self.backend)]
+            print(f"Filter by backend: {time.perf_counter() - checkpoint}s")
+        print(filtered)
         # checkpoint = time.perf_counter()
         # filtered = filtered.loc[
         #     pd.IndexSlice[
@@ -137,22 +148,6 @@ class AntennaPositionExplorer(param.Parameterized):
         print(f"Elapsed time: {time.perf_counter() - start}s")
         points = gv.Points(filtered, kdims=["RAJ2000", "DECJ2000"])
         return points
-        # selected_points = projected.select(
-        #     Frontend=self.frontend,
-        #     Backend=self.backend,
-        #     ScanNumber=self.scan_number,
-        #     ScanStart=self.scan_start,
-        # )
-        # if self.session:
-        #     sessions_list = [session for session in sessions if self.session in session]
-        #     selected_points = selected_points.select(Session=sessions_list)
-        # if self.observer:
-        #     selected_points = selected_points.select(Observer=self.observer)
-        # if self.proc_name:
-        #     selected_points = selected_points.select(ProcName=self.proc_name)
-        # print(f"Elapsed time: {time.perf_counter() - start}s")
-
-        # return selected_points
 
     def view(self, **kwargs):
         points = hv.DynamicMap(self.points)
