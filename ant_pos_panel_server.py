@@ -34,7 +34,7 @@ def project(points):
 
 print("Reading the parquet file into memory...")
 start = time.perf_counter()
-dataset = pd.read_parquet("/home/scratch/kwei/misc_parquets/swapped_sorted_multiindexed.parquet")
+dataset = pd.read_parquet("/home/scratch/kwei/misc_parquets/multiindex_projection.parquet")
 print(f"Elapsed time: {time.perf_counter() - start}s")
 
 # all_points = gv.Points(
@@ -130,7 +130,6 @@ class AntennaPositionExplorer(param.Parameterized):
             cur_backends = filtered.index.get_level_values("Backend")
             filtered = filtered[cur_backends.isin(self.backend)]
             print(f"Filter by backend: {time.perf_counter() - checkpoint}s")
-        print(filtered)
         # checkpoint = time.perf_counter()
         # filtered = filtered.loc[
         #     pd.IndexSlice[
@@ -146,7 +145,12 @@ class AntennaPositionExplorer(param.Parameterized):
         # ]
         # print(f"Filter by front/backend: {time.perf_counter() - checkpoint}s")
         print(f"Elapsed time: {time.perf_counter() - start}s")
-        points = gv.Points(filtered, kdims=["RAJ2000", "DECJ2000"])
+        points = gv.Points(filtered, kdims=["x_position", "y_position"], crs=crs.Mollweide())
+        points = points.opts(
+            gv.opts.Points(
+                projection=crs.Mollweide(), global_extent=True, width=800, height=400
+            )
+        )
         return points
 
     def view(self, **kwargs):
@@ -160,7 +164,7 @@ class AntennaPositionExplorer(param.Parameterized):
         )
         plot = (
             hd.shade(agg, cmap=self.param.cmap).opts(
-                # projection=crs.Mollweide(),
+                projection=crs.Mollweide(),
                 global_extent=True,
                 width=800,
                 height=400,
