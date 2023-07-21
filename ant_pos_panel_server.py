@@ -12,7 +12,6 @@ from colorcet import cm
 import param
 
 hv.extension("bokeh", logo=False)
-hv.config(future_deprecations=False)
 
 
 def remove_invalid_data(df: pd.DataFrame):
@@ -61,10 +60,10 @@ sessions = [""] + dataset.index.get_level_values(1).unique().tolist()
 # proc_names = [""] + dataset["ProcName"].unique().tolist()
 
 # FAKE data
-observers = ["", "Will Armentrout", "Emily Moravec", "Thomas Chamberlin", "Cat Catlett"]
+observers = ["All", "Will Armentrout", "Emily Moravec", "Thomas Chamberlin", "Cat Catlett"]
 frontends = ["grote", "reber", "karl", "jansky"]
 backends = ["i'm", "a", "little", "teacup"]
-proc_names = ["", "a", "aa", "aaa", "aaaa", "aaaaa"]
+proc_names = ["All", "a", "aa", "aaa", "aaaa", "aaaaa"]
 
 cur_datetime = datetime.today()
 
@@ -72,7 +71,7 @@ cur_datetime = datetime.today()
 class AntennaPositionExplorer(param.Parameterized):
     cmap = param.Selector(default=cm["rainbow4"], objects={c: cm[c] for c in cmaps})
     session = param.String("")
-    observer = param.String("")
+    observer = param.String("All")
     frontend = param.ListSelector(default=frontends, objects=frontends)
     backend = param.ListSelector(default=backends, objects=backends)
     scan_number = param.Range(default=(0, 1000), bounds=(0, 1000))
@@ -80,7 +79,7 @@ class AntennaPositionExplorer(param.Parameterized):
         default=(datetime(2002, 1, 1), cur_datetime - timedelta(days=1)),
         bounds=(datetime(2002, 1, 1), cur_datetime),
     )
-    proc_name = param.String("")
+    proc_name = param.String("All")
 
     # RA/DEC?
 
@@ -102,18 +101,19 @@ class AntennaPositionExplorer(param.Parameterized):
             checkpoint = time.perf_counter()
             filtered = filtered.xs(self.session, level=0, drop_level=False)
             print(f"Filter by session: {time.perf_counter() - checkpoint}s")
-        if self.observer:
+        if self.observer != "All":
+            print(self.observer)
             checkpoint = time.perf_counter()
             filtered = filtered.loc[pd.IndexSlice[:, self.observer], :]
             print(f"Filter by observer: {time.perf_counter() - checkpoint}s")
-        if self.proc_name:
+        if self.proc_name != "All":
             checkpoint = time.perf_counter()
-            filtered = filtered.loc[pd.IndexSlice[:, :, :, :, self.proc_name], :]
+            filtered = filtered.loc[pd.IndexSlice[:, :, :, :, :, :, self.proc_name], :]
             print(f"Filter by proc_name: {time.perf_counter() - checkpoint}s")
         if self.scan_number != (0, 1000):
             checkpoint = time.perf_counter()
             scan_numbers = filtered.index.get_level_values("ScanNumber")
-            filtered = filtered[(scan_numbers>= self.scan_number[0]) & (scan_numbers < self.scan_number[1])]
+            filtered = filtered[(scan_numbers >= self.scan_number[0]) & (scan_numbers < self.scan_number[1])]
             print(f"Filter by scan_number: {time.perf_counter() - checkpoint}s")
         if self.scan_start != (datetime(2002, 1, 1), cur_datetime - timedelta(days=1)):
             checkpoint = time.perf_counter()
@@ -166,8 +166,8 @@ class AntennaPositionExplorer(param.Parameterized):
             hd.shade(agg, cmap=self.param.cmap).opts(
                 projection=crs.Mollweide(),
                 global_extent=True,
-                width=800,
-                height=400,
+                width=900,
+                height=450,
             )
             * gv.feature.grid()
         )
@@ -188,7 +188,7 @@ widgets = pn.Param(
         },
         "observer": {
             "type": pn.widgets.AutocompleteInput(
-                value="", options=observers, name="Observer"
+                options=observers, value="All", name="Observer"
             )
         },
         "scan_start": {
@@ -201,7 +201,7 @@ widgets = pn.Param(
         },
         "proc_name": {
             "type": pn.widgets.AutocompleteInput(
-                options=proc_names, restrict=False, min_characters=1, name="Proc names?"
+                options=proc_names, value="All", min_characters=1, name="Proc names?"
             )
         },
     },
