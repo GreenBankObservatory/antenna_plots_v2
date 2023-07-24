@@ -65,7 +65,11 @@ class AntennaPositionExplorer(param.Parameterized):
                 filtered = filtered.xs(self.session, level=0, drop_level=False)
             else:
                 cur_sessions = filtered.index.get_level_values("Session")
-                filtered = filtered[cur_sessions.str.contains(self.session)]
+                filtered_sessions = [
+                    session for session in sessions if self.session in session
+                ]
+                print(filtered_sessions)
+                filtered = filtered[cur_sessions.isin(filtered_sessions)]
             print(f"Filter by session: {time.perf_counter() - checkpoint}s")
         if self.observer != "All":
             print(self.observer)
