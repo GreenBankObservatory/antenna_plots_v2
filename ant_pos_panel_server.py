@@ -1,5 +1,7 @@
+print("Importing...")
 from datetime import datetime, timedelta
 import time
+import argparse
 
 import pandas as pd
 
@@ -12,29 +14,36 @@ from colorcet import cm
 import param
 
 hv.extension("bokeh", logo=False)
+# pn.extension(loading_spinner='dots', reuse_sessions='True', throttled='True')
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("parquet_file")
+    args = parser.parse_args()
+    return args.parquet_file
 
 
 print("Reading the parquet file into memory...")
 start = time.perf_counter()
-dataset = pd.read_parquet(
-    "/home/scratch/kwei/misc_parquets/multiindex_projection.parquet"
-)
+parquet_file = parse_arguments()
+dataset = pd.read_parquet(parquet_file)
 print(f"Elapsed time: {time.perf_counter() - start}s")
 
 
 cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]
 sessions = dataset.index.get_level_values("Session").unique().tolist()
-observers = ["All"] + dataset.index.get_level_values("Observer").unique().tolist()
+observers = dataset.index.get_level_values("Observer").unique().tolist()
 frontends = dataset.index.get_level_values("Frontend").unique().tolist()
 backends = dataset.index.get_level_values("Backend").unique().tolist()
-proc_names = ["All"] + dataset.index.get_level_values("ProcName").unique().tolist()
+proc_names = dataset.index.get_level_values("ProcName").unique().tolist()
 cur_datetime = datetime.today()
 
 
 class AntennaPositionExplorer(param.Parameterized):
     cmap = param.Selector(default=cm["rainbow4"], objects={c: cm[c] for c in cmaps})
     session = param.String("")
-    observer = param.String("All")
+    observer = param.String("")
     frontend = param.ListSelector(default=frontends, objects=frontends)
     backend = param.ListSelector(default=backends, objects=backends)
     scan_number = param.Range(default=(0, 1000), bounds=(0, 1000))
@@ -42,7 +51,7 @@ class AntennaPositionExplorer(param.Parameterized):
         default=(datetime(2002, 1, 1), cur_datetime - timedelta(days=1)),
         bounds=(datetime(2002, 1, 1), cur_datetime),
     )
-    proc_name = param.String("All")
+    proc_name = param.String("")
 
     # RA/DEC?
 
@@ -68,17 +77,31 @@ class AntennaPositionExplorer(param.Parameterized):
                 filtered_sessions = [
                     session for session in sessions if self.session in session
                 ]
-                print(filtered_sessions)
                 filtered = filtered[cur_sessions.isin(filtered_sessions)]
             print(f"Filter by session: {time.perf_counter() - checkpoint}s")
-        if self.observer != "All":
-            print(self.observer)
+        if self.observer:
             checkpoint = time.perf_counter()
-            filtered = filtered.loc[pd.IndexSlice[:, self.observer], :]
+            if self.observer in observers:
+                filtered = filtered.loc[pd.IndexSlice[:, self.observer], :]
+            else:
+                cur_observers = filtered.index.get_level_values("Observer")
+                filtered_observers = [
+                    observer for observer in observers if self.observer in observer
+                ]
+                filtered = filtered[cur_observers.isin(filtered_observers)]
             print(f"Filter by observer: {time.perf_counter() - checkpoint}s")
-        if self.proc_name != "All":
+        if self.proc_name:
             checkpoint = time.perf_counter()
-            filtered = filtered.loc[pd.IndexSlice[:, :, :, :, :, :, self.proc_name], :]
+            if self.proc_name in proc_names:
+                filtered = filtered.loc[
+                    pd.IndexSlice[:, :, :, :, :, :, self.proc_name], :
+                ]
+            else:
+                cur_proc_names = filtered.index.get_level_values("ProcName")
+                filtered_proc_names = [
+                    proc_name for proc_name in proc_names if self.proc_name in proc_name
+                ]
+                filtered = filtered[cur_proc_names.isin(filtered_proc_names)]
             print(f"Filter by proc_name: {time.perf_counter() - checkpoint}s")
         if self.scan_number != (0, 1000):
             checkpoint = time.perf_counter()
@@ -138,7 +161,7 @@ class AntennaPositionExplorer(param.Parameterized):
         return plot
 
 
-ant_pos = AntennaPositionExplorer(name="GBT Antenna Interactive Dashboard")
+ant_pos = AntennaPositionExplorer()
 print("Generating widgets...")
 start = time.perf_counter()
 widgets = pn.Param(
@@ -155,11 +178,15 @@ widgets = pn.Param(
         },
         "observer": {
             "type": pn.widgets.AutocompleteInput(
-                options=observers, value="All", name="Observer"
+                options=observers,
+                value="",
+                restrict=False,
+                min_characters=1,
+                name="Observers",
             )
         },
         "scan_start": {
-            "type": pn.widgets.DatetimeRangePicker(
+            "type": pn.widgets.DatetimeRangeInput(
                 start=datetime(2002, 1, 1),
                 end=cur_datetime,
                 value=(datetime(2002, 1, 1), cur_datetime - timedelta(days=1)),
@@ -168,7 +195,11 @@ widgets = pn.Param(
         },
         "proc_name": {
             "type": pn.widgets.AutocompleteInput(
-                options=proc_names, value="All", min_characters=1, name="Proc names?"
+                options=proc_names,
+                value="",
+                restrict=False,
+                min_characters=1,
+                name="Proc names",
             )
         },
     },
@@ -178,10 +209,10 @@ print(f"Elapsed time: {time.perf_counter() - start}s")
 template = pn.template.BootstrapTemplate(
     title="GBT Antenna Data Interactive Dashboard",
     sidebar=widgets,
-    theme=pn.template.DarkTheme,
+    header_background="RoyalBlue"
 )
 template.main.append(pn.Row(ant_pos.view()))
 template.servable()
 
 # to run:
-# panel serve --show ant_pos_panel_server.py
+# panel serve ant_pos_panel_server.py --allow-websocket-origin [address] --args [parquet file]
