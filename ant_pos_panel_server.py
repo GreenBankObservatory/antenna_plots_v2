@@ -105,7 +105,7 @@ class AntennaPositionExplorer(param.Parameterized):
         "scan_start",
         "proc_name",
     )
-    def points(self, session_list=None):
+    def points(self):
         print("Selecting data...")
         start = time.perf_counter()
         filtered = dataset
@@ -199,7 +199,7 @@ class AntennaPositionExplorer(param.Parameterized):
 
         box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
         box.add_subscriber(update_tabulator)
-        bounds = hv.DynamicMap(lambda bounds: hv.Bounds(bounds), streams=[box])
+        bounds = hv.DynamicMap(lambda bounds: hv.Bounds(bounds).opts(color='royalblue'), streams=[box])
 
         plot = shaded.opts(tools=["box_select"]) * gv.feature.grid() * bounds
 
@@ -249,22 +249,16 @@ widgets = pn.Param(
 )
 
 
-def clicked_session(event):
-    session = tabulator.value["Sessions"].iloc[event.row]
-    return session
+def filter_session(event):
+    session = tabulator.value["Session"].iloc[event.row]
+    prev_session = ant_pos.session
+    if session == prev_session:
+        ant_pos.session = ""
+    else:
+        ant_pos.session = session
 
+tabulator.on_click(filter_session)
 
-# def filter_session(tabulator):
-#     print("click!")
-#     ant_pos.session.value = event.value
-
-# tabulator.on_click(filter_session, column="Session")
-
-# @pn.depends(tabulator)
-# def update_points_by_tabulator(tabulator):
-#     ant_pos.points(session_list=tabulator.selected_dataframe["Session"].unique().tolist())
-
-# tabulator.param.watch(update_points_by_tabulator, 'selected_dataframe')
 
 template = pn.template.BootstrapTemplate(
     title="GBT Antenna Data Interactive Dashboard",
