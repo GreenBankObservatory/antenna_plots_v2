@@ -266,7 +266,7 @@ template = pn.template.BootstrapTemplate(
     sidebar=widgets,
     header_background="RoyalBlue",
 )
-template.main.append(pn.Row(ant_pos.view(), pn.Column(tabulator)))
+template.main.append(pn.Column(ant_pos.view(), tabulator))
 template.servable()
 # TODO: set name of webpage
 
