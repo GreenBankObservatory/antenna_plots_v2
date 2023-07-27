@@ -5,9 +5,11 @@ import argparse
 
 import pandas as pd
 
+from bokeh.models import HoverTool
 import panel as pn
 import holoviews as hv
 import holoviews.operation.datashader as hd
+from holoviews import streams
 import geoviews as gv
 from cartopy import crs
 from colorcet import cm
@@ -40,6 +42,46 @@ proc_names = dataset.index.get_level_values("ProcName").unique().tolist()
 cur_datetime = datetime.today()
 
 
+tabulator = pn.widgets.Tabulator(
+    value=pd.DataFrame(),
+    selectable="True",
+    disabled=True,
+    show_index=False,
+    name="Selected data",
+)
+
+
+def session_click(event):
+    session = tabulator.value["Sessions"].iloc[event.row]
+
+
+LINK_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-up-right-square" viewBox="0 0 16 16">
+  <path fill-rule="evenodd" d="M15 2a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2zM0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm5.854 8.803a.5.5 0 1 1-.708-.707L9.243 6H6.475a.5.5 0 1 1 0-1h3.975a.5.5 0 0 1 .5.5v3.975a.5.5 0 1 1-1 0V6.707l-4.096 4.096z"/>
+</svg>
+"""
+
+
+def update_table(bounds):
+    filtered = dataset
+    filtered = filtered[
+        (filtered["x_position"] >= bounds[0])
+        & (filtered["x_position"] < bounds[2])
+        & (filtered["y_position"] >= bounds[1])
+        & (filtered["y_position"] < bounds[3])
+    ]
+    df = pd.DataFrame(
+        data={"Session": filtered.index.get_level_values("Session").unique().tolist()}
+    )
+    df["Archive"] = df.apply(
+        lambda row: f"""<a href='http://thales:9237/disk/sessions/{row.Session}/' target='_blank'>
+            <div title='View in archive'>{LINK_SVG}</div></a>""",
+        axis=1,
+    )
+    tabulator.value = df
+    tabulator.formatters = {"Archive": {"type": "html", "field": "html"}}
+
+
 class AntennaPositionExplorer(param.Parameterized):
     cmap = param.Selector(default=cm["rainbow4"], objects={c: cm[c] for c in cmaps})
     session = param.String("")
@@ -53,8 +95,6 @@ class AntennaPositionExplorer(param.Parameterized):
     )
     proc_name = param.String("")
 
-    # RA/DEC?
-
     @param.depends(
         "session",
         "observer",
@@ -64,7 +104,7 @@ class AntennaPositionExplorer(param.Parameterized):
         "scan_start",
         "proc_name",
     )
-    def points(self):
+    def points(self, session_list=None):
         print("Selecting data...")
         start = time.perf_counter()
         filtered = dataset
@@ -130,7 +170,10 @@ class AntennaPositionExplorer(param.Parameterized):
             print(f"Filter by backend: {time.perf_counter() - checkpoint}s")
         print(f"Elapsed time: {time.perf_counter() - start}s")
         points = gv.Points(
-            filtered, kdims=["x_position", "y_position"], crs=crs.Mollweide()
+            filtered,
+            kdims=["x_position", "y_position"],
+            vdims=["RAJ2000", "DECJ2000"],
+            crs=crs.Mollweide(),
         )
         points = points.opts(
             gv.opts.Points(
@@ -139,31 +182,44 @@ class AntennaPositionExplorer(param.Parameterized):
         )
         return points
 
+    # def df_from_bounds(self, bounds):
+    #     print(bounds)
+    #     filtered = dataset
+    #     filtered = filtered[
+    #         (filtered["x_position"] >= bounds[0])
+    #         & (filtered["x_position"] < bounds[2])
+    #         & (filtered["y_position"] >= bounds[1])
+    #         & (filtered["y_position"] < bounds[3])
+    #     ]
+    #     table = hv.Table(filtered)
+    #     print(table)
+    #     return table
+
     def view(self, **kwargs):
         points = hv.DynamicMap(self.points)
-        print("Rasterizing and shading plot...")
-        start = time.perf_counter()
         agg = hd.rasterize(
             points,
             x_sampling=1,
             y_sampling=1,
         )
-        plot = (
-            hd.shade(agg, cmap=self.param.cmap).opts(
-                projection=crs.Mollweide(),
-                global_extent=True,
-                width=900,
-                height=450,
-            )
-            * gv.feature.grid()
+        shaded = hd.shade(agg, cmap=self.param.cmap).opts(
+            projection=crs.Mollweide(),
+            global_extent=True,
+            width=900,
+            height=450,
         )
-        print(f"Elapsed time: {time.perf_counter() - start}s")
+
+        box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
+        box.add_subscriber(update_table)
+        bounds = hv.DynamicMap(lambda bounds: hv.Bounds(bounds), streams=[box])
+        # table = hv.DynamicMap(self.df_from_bounds, streams=[box])
+
+        plot = shaded.opts(tools=["box_select"]) * gv.feature.grid() * bounds
+
         return plot
 
 
 ant_pos = AntennaPositionExplorer()
-print("Generating widgets...")
-start = time.perf_counter()
 widgets = pn.Param(
     ant_pos.param,
     widgets={
@@ -202,16 +258,30 @@ widgets = pn.Param(
                 name="Proc names",
             )
         },
+        # "selected_data": {
+        #     "type": pn.widgets.Tabulator(value=pd.DataFrame(), name="Selected data")
+        # }
     },
 )
-print(f"Elapsed time: {time.perf_counter() - start}s")
+
+# def filter_session(tabulator):
+#     print("click!")
+#     ant_pos.session.value = event.value
+
+# tabulator.on_click(filter_session, column="Session")
+
+# @pn.depends(tabulator)
+# def update_points_by_tabulator(tabulator):
+#     ant_pos.points(session_list=tabulator.selected_dataframe["Session"].unique().tolist())
+
+# tabulator.param.watch(update_points_by_tabulator, 'selected_dataframe')
 
 template = pn.template.BootstrapTemplate(
     title="GBT Antenna Data Interactive Dashboard",
     sidebar=widgets,
-    header_background="RoyalBlue"
+    header_background="RoyalBlue",
 )
-template.main.append(pn.Row(ant_pos.view()))
+template.main.append(pn.Row(ant_pos.view(), pn.Column(tabulator)))
 template.servable()
 
 # to run:
