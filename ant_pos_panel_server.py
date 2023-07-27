@@ -18,21 +18,32 @@ import param
 hv.extension("bokeh", logo=False)
 # pn.extension(loading_spinner='dots', reuse_sessions='True', throttled='True')
 
+LINK_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-up-right-square" viewBox="0 0 16 16">
+  <path fill-rule="evenodd" d="M15 2a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2zM0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm5.854 8.803a.5.5 0 1 1-.708-.707L9.243 6H6.475a.5.5 0 1 1 0-1h3.975a.5.5 0 0 1 .5.5v3.975a.5.5 0 1 1-1 0V6.707l-4.096 4.096z"/>
+</svg>
+"""
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("parquet_file")
+    parser.add_argument("alda_address")
     args = parser.parse_args()
-    return args.parquet_file
+    return args.parquet_file, args.alda_address
 
 
-print("Reading the parquet file into memory...")
-start = time.perf_counter()
-parquet_file = parse_arguments()
-dataset = pd.read_parquet(parquet_file)
-print(f"Elapsed time: {time.perf_counter() - start}s")
+@pn.cache
+def get_data(parquet_file):
+    print("Reading the parquet file into memory...")
+    start = time.perf_counter()
+    dataset = pd.read_parquet(parquet_file)
+    print(f"Elapsed time: {time.perf_counter() - start}s")
+    return dataset
 
 
+parquet_file, alda_address = parse_arguments()
+dataset = get_data(parquet_file)
 cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]
 sessions = dataset.index.get_level_values("Session").unique().tolist()
 observers = dataset.index.get_level_values("Observer").unique().tolist()
@@ -43,7 +54,7 @@ cur_datetime = datetime.today()
 
 
 tabulator = pn.widgets.Tabulator(
-    value=pd.DataFrame(),
+    value=pd.DataFrame(),  # TODO: populate with empty columns, add formatters
     selectable="True",
     disabled=True,
     show_index=False,
@@ -51,18 +62,7 @@ tabulator = pn.widgets.Tabulator(
 )
 
 
-def session_click(event):
-    session = tabulator.value["Sessions"].iloc[event.row]
-
-
-LINK_SVG = """
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-up-right-square" viewBox="0 0 16 16">
-  <path fill-rule="evenodd" d="M15 2a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2zM0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm5.854 8.803a.5.5 0 1 1-.708-.707L9.243 6H6.475a.5.5 0 1 1 0-1h3.975a.5.5 0 0 1 .5.5v3.975a.5.5 0 1 1-1 0V6.707l-4.096 4.096z"/>
-</svg>
-"""
-
-
-def update_table(bounds):
+def update_tabulator(bounds):
     filtered = dataset
     filtered = filtered[
         (filtered["x_position"] >= bounds[0])
@@ -74,7 +74,7 @@ def update_table(bounds):
         data={"Session": filtered.index.get_level_values("Session").unique().tolist()}
     )
     df["Archive"] = df.apply(
-        lambda row: f"""<a href='http://thales:9237/disk/sessions/{row.Session}/' target='_blank'>
+        lambda row: f"""<a href='http://{alda_address}/disk/sessions/{row.Session}/' target='_blank'>
             <div title='View in archive'>{LINK_SVG}</div></a>""",
         axis=1,
     )
@@ -83,6 +83,7 @@ def update_table(bounds):
 
 
 class AntennaPositionExplorer(param.Parameterized):
+    # TODO: replace with reactive API? move tabulator under plot
     cmap = param.Selector(default=cm["rainbow4"], objects={c: cm[c] for c in cmaps})
     session = param.String("")
     observer = param.String("")
@@ -182,19 +183,6 @@ class AntennaPositionExplorer(param.Parameterized):
         )
         return points
 
-    # def df_from_bounds(self, bounds):
-    #     print(bounds)
-    #     filtered = dataset
-    #     filtered = filtered[
-    #         (filtered["x_position"] >= bounds[0])
-    #         & (filtered["x_position"] < bounds[2])
-    #         & (filtered["y_position"] >= bounds[1])
-    #         & (filtered["y_position"] < bounds[3])
-    #     ]
-    #     table = hv.Table(filtered)
-    #     print(table)
-    #     return table
-
     def view(self, **kwargs):
         points = hv.DynamicMap(self.points)
         agg = hd.rasterize(
@@ -210,9 +198,8 @@ class AntennaPositionExplorer(param.Parameterized):
         )
 
         box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
-        box.add_subscriber(update_table)
+        box.add_subscriber(update_tabulator)
         bounds = hv.DynamicMap(lambda bounds: hv.Bounds(bounds), streams=[box])
-        # table = hv.DynamicMap(self.df_from_bounds, streams=[box])
 
         plot = shaded.opts(tools=["box_select"]) * gv.feature.grid() * bounds
 
@@ -258,11 +245,14 @@ widgets = pn.Param(
                 name="Proc names",
             )
         },
-        # "selected_data": {
-        #     "type": pn.widgets.Tabulator(value=pd.DataFrame(), name="Selected data")
-        # }
     },
 )
+
+
+def clicked_session(event):
+    session = tabulator.value["Sessions"].iloc[event.row]
+    return session
+
 
 # def filter_session(tabulator):
 #     print("click!")
@@ -285,4 +275,4 @@ template.main.append(pn.Row(ant_pos.view(), pn.Column(tabulator)))
 template.servable()
 
 # to run:
-# panel serve ant_pos_panel_server.py --allow-websocket-origin [address] --args [parquet file]
+# panel serve ant_pos_panel_server.py --allow-websocket-origin [address] --args [parquet file] [alda address]
