@@ -33,7 +33,6 @@ def parse_arguments():
     return args.parquet_file, args.alda_address
 
 
-@pn.cache
 def get_data(parquet_file):
     print("Reading the parquet file into memory...")
     start = time.perf_counter()
@@ -73,11 +72,13 @@ def update_tabulator(bounds):
     df = pd.DataFrame(
         data={"Session": filtered.index.get_level_values("Session").unique().tolist()}
     )
-    df["Archive"] = df.apply(
-        lambda row: f"""<a href='http://{alda_address}/disk/sessions/{row.Session}/' target='_blank'>
-            <div title='View in archive'>{LINK_SVG}</div></a>""",
-        axis=1,
-    )
+    # df["Archive"] = df.apply(
+    #     lambda row: f"""<a href='http://{alda_address}/disk/sessions/{row.Session}/' target='_blank'>
+    #         <div title='View in archive'>{LINK_SVG}</div></a>""",
+    #     axis=1,
+    # )
+    df["Archive"] = [f"""<a href='http://{alda_address}/disk/sessions/{session}/' target='_blank'>
+             <div title='View in archive'>{LINK_SVG}</div></a>""" for session in df["Session"]]
     tabulator.value = df
     tabulator.formatters = {"Archive": {"type": "html", "field": "html"}}
 
@@ -206,7 +207,7 @@ class AntennaPositionExplorer(param.Parameterized):
         return plot
 
 
-ant_pos = AntennaPositionExplorer()
+ant_pos = AntennaPositionExplorer(name="")
 widgets = pn.Param(
     ant_pos.param,
     widgets={
@@ -267,6 +268,7 @@ template = pn.template.BootstrapTemplate(
 )
 template.main.append(pn.Row(ant_pos.view(), pn.Column(tabulator)))
 template.servable()
+# TODO: set name of webpage
 
 # to run:
 # panel serve ant_pos_panel_server.py --allow-websocket-origin [address] --args [parquet file] [alda address]
