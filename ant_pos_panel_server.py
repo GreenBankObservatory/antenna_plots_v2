@@ -5,7 +5,7 @@ import argparse
 
 import pandas as pd
 
-from bokeh.models import HoverTool
+from bokeh.models import BoxSelectTool, BoxAnnotation
 import panel as pn
 import holoviews as hv
 import holoviews.operation.datashader as hd
@@ -32,7 +32,7 @@ def parse_arguments():
     args = parser.parse_args()
     return args.parquet_file, args.alda_address
 
-
+@pn.cache
 def get_data(parquet_file):
     print("Reading the parquet file into memory...")
     start = time.perf_counter()
@@ -54,9 +54,11 @@ cur_datetime = datetime.today()
 
 tabulator = pn.widgets.Tabulator(
     value=pd.DataFrame(),  # TODO: populate with empty columns, add formatters
-    selectable="True",
+    # selectable="True",
     disabled=True,
     show_index=False,
+    pagination="remote",
+    page_size=10,
     name="Selected data",
 )
 
@@ -77,15 +79,19 @@ def update_tabulator(bounds):
     #         <div title='View in archive'>{LINK_SVG}</div></a>""",
     #     axis=1,
     # )
-    df["Archive"] = [f"""<a href='http://{alda_address}/disk/sessions/{session}/' target='_blank'>
-             <div title='View in archive'>{LINK_SVG}</div></a>""" for session in df["Session"]]
+    df["Archive"] = [
+        f"""<a href='http://{alda_address}/disk/sessions/{session}/' target='_blank'>
+             <div title='View in archive'>{LINK_SVG}</div></a>"""
+        for session in df["Session"]
+    ]
     tabulator.value = df
     tabulator.formatters = {"Archive": {"type": "html", "field": "html"}}
 
 
 class AntennaPositionExplorer(param.Parameterized):
-    # TODO: replace with reactive API? move tabulator under plot
-    cmap = param.Selector(default=cm["rainbow4"], objects={c: cm[c] for c in cmaps})
+    cmap = param.Selector(
+        default=cm["rainbow4"], objects={c: cm[c] for c in cmaps}, label="Color map"
+    )
     session = param.String("")
     observer = param.String("")
     frontend = param.ListSelector(default=frontends, objects=frontends)
@@ -200,9 +206,15 @@ class AntennaPositionExplorer(param.Parameterized):
 
         box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
         box.add_subscriber(update_tabulator)
-        bounds = hv.DynamicMap(lambda bounds: hv.Bounds(bounds).opts(color='royalblue'), streams=[box])
+        # bounds = hv.DynamicMap(
+        #     lambda bounds: hv.Bounds(bounds).opts(color="royalblue"), streams=[box]
+        # )
+        box_select_tool = BoxSelectTool(
+            # persistent=True,
+            overlay=BoxAnnotation(fill_color="#add8e6", fill_alpha=0.4),
+        )
 
-        plot = shaded.opts(tools=["box_select"]) * gv.feature.grid() * bounds
+        plot = shaded.opts(tools=[box_select_tool]) * gv.feature.grid()
 
         return plot
 
@@ -250,13 +262,24 @@ widgets = pn.Param(
 )
 
 
+def highlight_clicked(val, color):
+    return f"background-color: {color}" if val else None
+
+
 def filter_session(event):
     session = tabulator.value["Session"].iloc[event.row]
     prev_session = ant_pos.session
     if session == prev_session:
         ant_pos.session = ""
+        tabulator.style.applymap(
+            highlight_clicked, color="white", subset=[event.row, slice(None)]
+        )
     else:
         ant_pos.session = session
+        tabulator.style.applymap(
+            highlight_clicked, color="lightblue", subset=[event.row, slice(None)]
+        )
+
 
 tabulator.on_click(filter_session)
 
@@ -268,7 +291,6 @@ template = pn.template.BootstrapTemplate(
 )
 template.main.append(pn.Column(ant_pos.view(), tabulator))
 template.servable()
-# TODO: set name of webpage
 
 # to run:
 # panel serve ant_pos_panel_server.py --allow-websocket-origin [address] --args [parquet file] [alda address]
