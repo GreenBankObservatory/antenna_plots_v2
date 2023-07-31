@@ -16,7 +16,9 @@ from colorcet import cm
 import param
 
 hv.extension("bokeh", logo=False)
-# pn.extension(loading_spinner='dots', reuse_sessions='True', throttled='True')
+pn.extension(
+    "tabulator", loading_spinner="dots", reuse_sessions="True", throttled="True"
+)
 
 LINK_SVG = """
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-up-right-square" viewBox="0 0 16 16">
@@ -31,6 +33,7 @@ def parse_arguments():
     parser.add_argument("alda_address")
     args = parser.parse_args()
     return args.parquet_file, args.alda_address
+
 
 @pn.cache
 def get_data(parquet_file):
@@ -86,6 +89,25 @@ def update_tabulator(bounds):
     ]
     tabulator.value = df
     tabulator.formatters = {"Archive": {"type": "html", "field": "html"}}
+
+
+def crosshair_info(x, y):
+    pc = crs.PlateCarree()
+    ra, dec = pc.transform_point(x, y, crs.Mollweide())
+    ra = round(ra, 1)
+    dec = round(dec, 1)
+    text = hv.Text(
+        x,
+        y,
+        f"RA: {ra}\N{DEGREE SIGN}\nDec: {dec}\N{DEGREE SIGN}",
+        halign="left",
+        valign="bottom",
+    )
+    return (
+        hv.HLine(y).opts(color="lightblue", line_width=0.5)
+        * hv.VLine(x).opts(color="lightblue", line_width=0.5)
+        * text
+    )
 
 
 class AntennaPositionExplorer(param.Parameterized):
@@ -206,15 +228,22 @@ class AntennaPositionExplorer(param.Parameterized):
 
         box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
         box.add_subscriber(update_tabulator)
-        # bounds = hv.DynamicMap(
-        #     lambda bounds: hv.Bounds(bounds).opts(color="royalblue"), streams=[box]
-        # )
+        bounds = hv.DynamicMap(
+            lambda bounds: hv.Bounds(bounds).opts(color="DarkCyan"), streams=[box]
+        )
         box_select_tool = BoxSelectTool(
             # persistent=True,
-            overlay=BoxAnnotation(fill_color="#add8e6", fill_alpha=0.4),
+            # overlay=BoxAnnotation(fill_color="#add8e6", fill_alpha=0.4),
         )
 
-        plot = shaded.opts(tools=[box_select_tool]) * gv.feature.grid()
+        pointer = streams.PointerXY(x=0, y=0, source=shaded)
+
+        plot = (
+            shaded.opts(tools=[box_select_tool])
+            * gv.feature.grid()
+            * bounds
+            * hv.DynamicMap(crosshair_info, streams=[pointer])
+        )
 
         return plot
 
@@ -287,7 +316,7 @@ tabulator.on_click(filter_session)
 template = pn.template.BootstrapTemplate(
     title="GBT Antenna Data Interactive Dashboard",
     sidebar=widgets,
-    header_background="RoyalBlue",
+    header_background="LightSeaGreen",
 )
 template.main.append(pn.Column(ant_pos.view(), tabulator))
 template.servable()
