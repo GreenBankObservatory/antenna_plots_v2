@@ -47,27 +47,20 @@ def get_data(full_data_path, metadata_path):
     return dataset, metadata
 
 
-# TODO: add widgets, *deal with nans, rename tabulator columns, resize
+# TODO: datetime (replace(tzinfo=None)), precompute archive link, replace nans, add widgets
 # TODO: change tabulator so that it only includes filtered results?
-# TODO: remove case sensitivity in autocomplete
-# TODO: precompute archive link?
+# TODO: remove case sensitivity in autocomplete, resize table
 
 full_data_path, metadata_path, alda_address = parse_arguments()
 dataset, metadata = get_data(full_data_path, metadata_path)
 current_filtered = dataset
 cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]
-projects = dataset.index.get_level_values("project").unique().tolist()
-projects = [element for element in projects if not pd.isnull(element)]
-sessions = dataset.index.get_level_values("session").unique().tolist()
-sessions = [element for element in sessions if not pd.isnull(element)]
-observers = dataset.index.get_level_values("observer").unique().tolist()
-observers = [element for element in observers if not pd.isnull(element)]
-frontends = dataset.index.get_level_values("frontend").unique().tolist()
-frontends = [element for element in frontends if not pd.isnull(element)]
-backends = dataset.index.get_level_values("backend").unique().tolist()
-backends = [element for element in backends if not pd.isnull(element)]
-proc_names = dataset.index.get_level_values("procname").unique().tolist()
-proc_names = [element for element in proc_names if not pd.isnull(element)]
+param_dict = {}
+params = ['project', 'session', 'observer', 'frontend', 'backend', 'procname', 'obstype', 'procscan', 'proctype', 'object', 'script_name']
+for p in params:
+    param_list = dataset.index.get_level_values(p).unique().tolist()
+    param_list = [element for element in param_list if not pd.isnull(element)]
+    param_dict[p] = param_list
 cur_datetime = datetime.today()
 
 
@@ -106,16 +99,16 @@ def update_tabulator(bounds):
         & (filtered["projected_y"] >= bounds[1])
         & (filtered["projected_y"] < bounds[3])
     ]
-    sessions = filtered.index.get_level_values("session").unique().tolist()
+    param_dict['session'] = filtered.index.get_level_values("session").unique().tolist()
     df = pd.DataFrame()
-    df = metadata[metadata["Session"].isin(sessions)]
+    df = metadata[metadata["Session"].isin(param_dict['session'])]
     # df["Archive"] = df.apply(
-    #     lambda row: f"""<a href='http://{alda_address}/disk/sessions/{row.Session}/' target='_blank'>
+    #     lambda row: f"""<a href='http://{alda_address}/disk/param_dict['session']/{row.Session}/' target='_blank'>
     #         <div title='View in archive'>{LINK_SVG}</div></a>""",
     #     axis=1,
     # )
     df["Archive"] = [
-        f"""<a href='http://{alda_address}/disk/sessions/{session}/' target='_blank'>
+        f"""<a href='http://{alda_address}/disk/param_dict['session']/{session}/' target='_blank'>
              <div title='View in archive'>{LINK_SVG}</div></a>"""
         for session in df["Session"]
     ]
@@ -146,18 +139,26 @@ class AntennaPositionExplorer(param.Parameterized):
     cmap = param.Selector(
         default=cm["rainbow4"], objects={c: cm[c] for c in cmaps}, label="Color map"
     )
+    project = param.String("")
     session = param.String("")
     observer = param.String("")
-    frontend = param.ListSelector(default=frontends, objects=frontends)
-    backend = param.ListSelector(default=backends, objects=backends)
+    frontend = param.ListSelector(default=param_dict['frontend'], objects=param_dict['frontend'])
+    backend = param.ListSelector(default=param_dict['backend'], objects=param_dict['backend'])
     scan_number = param.Range(default=(0, 5000), bounds=(0, 5000))
     scan_start = param.DateRange(
         default=(datetime(2002, 1, 1), cur_datetime - timedelta(days=1)),
         bounds=(datetime(2002, 1, 1), cur_datetime),
     )
-    proc_name = param.String("")
+    proc_name = param.String("All")
+    obs_type = param.String("All")
+    proc_scan = param.String("All")
+    proc_type = param.ListSelector(default=param_dict['proctype'], objects=param_dict['proctype'])
+    obj = param.String("")
+    script_name = param.String("")
+
 
     @param.depends(
+        "project",
         "session",
         "observer",
         "frontend",
@@ -165,46 +166,85 @@ class AntennaPositionExplorer(param.Parameterized):
         "scan_number",
         "scan_start",
         "proc_name",
+        "obs_type",
+        "proc_scan",
+        "obj",
+        "script_name",
     )
     def points(self):
         print("Selecting data...")
         start = time.perf_counter()
         filtered = dataset
+        if self.project:
+            if self.project in param_dict['project']:
+                filtered = filtered.xs(self.session, level=0, drop_level=False)
+            else:
+                cur_projects = filtered.index.get_level_values("project")
+                filtered_projects = [
+                    project for project in param_dict['project'] if self.project in project
+                ]
+                filtered = filtered[cur_projects.isin(filtered_projects)]
         if self.session:
             checkpoint = time.perf_counter()
-            if self.session in sessions:
+            if self.session in param_dict['session']:
                 filtered = filtered.xs(self.session, level=1, drop_level=False)
             else:
                 cur_sessions = filtered.index.get_level_values("session")
                 filtered_sessions = [
-                    session for session in sessions if self.session in session
+                    session for session in param_dict['session'] if self.session in session
                 ]
                 filtered = filtered[cur_sessions.isin(filtered_sessions)]
             print(f"Filter by session: {time.perf_counter() - checkpoint}s")
         if self.observer:
             checkpoint = time.perf_counter()
-            if self.observer in observers:
+            if self.observer in param_dict['observer']:
                 filtered = filtered.loc[pd.IndexSlice[:, :, :, :, self.observer], :]
             else:
                 cur_observers = filtered.index.get_level_values("observer")
                 filtered_observers = [
-                    observer for observer in observers if self.observer in observer
+                    observer for observer in param_dict['observer'] if self.observer in observer
                 ]
                 filtered = filtered[cur_observers.isin(filtered_observers)]
             print(f"Filter by observer: {time.perf_counter() - checkpoint}s")
-        if self.proc_name:
+        if self.proc_name != 'All':
             checkpoint = time.perf_counter()
-            if self.proc_name in proc_names:
+            if self.proc_name in param_dict['procname']:
                 filtered = filtered.loc[
                     pd.IndexSlice[:, :, :, :, :, :, :, self.proc_name], :
                 ]
             else:
                 cur_proc_names = filtered.index.get_level_values("procname")
                 filtered_proc_names = [
-                    proc_name for proc_name in proc_names if self.proc_name in proc_name
+                    proc_name for proc_name in param_dict['procname'] if self.proc_name in proc_name
                 ]
                 filtered = filtered[cur_proc_names.isin(filtered_proc_names)]
             print(f"Filter by proc_name: {time.perf_counter() - checkpoint}s")
+        if self.obs_type != 'All':
+            checkpoint = time.perf_counter()
+            if self.obs_type in param_dict['obstype']:
+                filtered = filtered.loc[
+                    pd.IndexSlice[:, :, :, :, :, :, :, :, self.obs_type], :
+                ]
+            else:
+                cur_obs_types = filtered.index.get_level_values("obstype")
+                filtered_obs_types = [
+                    obs_type for obs_type in param_dict['obstype'] if self.obs_type in obs_type
+                ]
+                filtered = filtered[cur_obs_types.isin(filtered_obs_types)]
+            print(f"Filter by obs_type: {time.perf_counter() - checkpoint}s")
+        if self.proc_scan != 'All':
+            checkpoint = time.perf_counter()
+            if self.proc_scan in param_dict['procscan']:
+                filtered = filtered.loc[
+                    pd.IndexSlice[:, :, :, :, :, :, :, :, :, self.proc_scan], :
+                ]
+            else:
+                cur_proc_scans = filtered.index.get_level_values("procscan")
+                filtered_proc_scans = [
+                    proc_scan for proc_scan in param_dict['procscan'] if self.proc_scan in proc_scan
+                ]
+                filtered = filtered[cur_proc_scans.isin(filtered_proc_scans)]
+            print(f"Filter by proc_scan: {time.perf_counter() - checkpoint}s")
         if self.scan_number != (0, 5000):
             checkpoint = time.perf_counter()
             scan_numbers = filtered.index.get_level_values("scan_number")
@@ -220,16 +260,43 @@ class AntennaPositionExplorer(param.Parameterized):
                 (scan_starts >= self.scan_start[0]) & (scan_starts < self.scan_start[1])
             ]
             print(f"Filter by scan_start: {time.perf_counter() - checkpoint}s")
-        if self.frontend != frontends:
+        if self.frontend != param_dict['frontend']:
             checkpoint = time.perf_counter()
             cur_frontends = filtered.index.get_level_values("frontend")
             filtered = filtered[cur_frontends.isin(self.frontend)]
             print(f"Filter by frontend: {time.perf_counter() - checkpoint}s")
-        if self.backend != backends:
+        if self.backend != param_dict['backend']:
             checkpoint = time.perf_counter()
             cur_backends = filtered.index.get_level_values("backend")
             filtered = filtered[cur_backends.isin(self.backend)]
             print(f"Filter by backend: {time.perf_counter() - checkpoint}s")
+        if self.proc_type != param_dict['proctype']:
+            checkpoint = time.perf_counter()
+            cur_proc_types = filtered.index.get_level_values("proctype")
+            filtered = filtered[cur_proc_types.isin(self.proc_type)]
+            print(f"Filter by proc_type: {time.perf_counter() - checkpoint}s")
+        if self.obj:
+            checkpoint = time.perf_counter()
+            if self.obj in param_dict['object']:
+                filtered = filtered.xs(self.session, level=11, drop_level=False)
+            else:
+                cur_objects = filtered.index.get_level_values("object")
+                filtered_objects = [
+                    obj for obj in param_dict['object'] if self.obj in obj
+                ]
+                filtered = filtered[cur_objects.isin(filtered_objects)]
+            print(f"Filter by object: {time.perf_counter() - checkpoint}s")
+        if self.script_name:
+            checkpoint = time.perf_counter()
+            if self.script_name in param_dict['script_name']:
+                filtered = filtered.xs(self.script_name, level=1, drop_level=False)
+            else:
+                cur_script_names = filtered.index.get_level_values("script_name")
+                filtered_script_names = [
+                    script_name for script_name in param_dict['script_name'] if self.script_name in script_name
+                ]
+                filtered = filtered[cur_script_names.isin(filtered_script_names)]
+            print(f"Filter by script_name: {time.perf_counter() - checkpoint}s")
         print(f"Elapsed time: {time.perf_counter() - start}s")
         current_filtered = filtered
         points = gv.Points(
@@ -285,9 +352,18 @@ ant_pos = AntennaPositionExplorer(name="")
 widgets = pn.Param(
     ant_pos.param,
     widgets={
+        "project": {
+            "type": pn.widgets.AutocompleteInput(
+                options=param_dict['project'],
+                value="",
+                restrict=False,
+                min_characters=1,
+                name="Projects",
+            )
+        },
         "session": {
             "type": pn.widgets.AutocompleteInput(
-                options=sessions,
+                options=param_dict['session'],
                 value="",
                 restrict=False,
                 min_characters=1,
@@ -296,7 +372,7 @@ widgets = pn.Param(
         },
         "observer": {
             "type": pn.widgets.AutocompleteInput(
-                options=observers,
+                options=param_dict['observer'],
                 value="",
                 restrict=False,
                 min_characters=1,
@@ -313,11 +389,47 @@ widgets = pn.Param(
         },
         "proc_name": {
             "type": pn.widgets.AutocompleteInput(
-                options=proc_names,
-                value="",
-                restrict=False,  # TODO: change to true?
+                options=['All'] + param_dict['procname'],
+                value="All",
+                restrict=True,
                 min_characters=1,
                 name="Proc names",
+            )
+        },
+        "obs_type": {
+            "type": pn.widgets.AutocompleteInput(
+                options=['All'] + param_dict['obstype'],
+                value="All",
+                restrict=True,
+                min_characters=1,
+                name="Observation types",
+            )
+        },
+        "proc_scan": {
+            "type": pn.widgets.AutocompleteInput(
+                options=['All'] + param_dict['procscan'],
+                value="All",
+                restrict=True,
+                min_characters=1,
+                name="Proc scan",
+            )
+        },
+        "obj": {
+            "type": pn.widgets.AutocompleteInput(
+                options=param_dict['object'],
+                value="",
+                restrict=False,
+                min_characters=1,
+                name="Observed object",
+            )
+        },
+        "script_name": {
+            "type": pn.widgets.AutocompleteInput(
+                options=param_dict['script_name'],
+                value="",
+                restrict=False,
+                min_characters=1,
+                name="Script name",
             )
         },
     },
