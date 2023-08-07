@@ -41,7 +41,6 @@ def get_data(full_data_path, metadata_path):
 
 # TODO: slice bug
 # TODO: add 'help' or descriptions for filters
-# TODO: reset button for RA/Dec
 
 # TODO: ask about metadata - multiple backends, procnames, obstypes, etc. per session?
 # TODO: find out ways to prevent insane load time in beginning?
@@ -194,11 +193,19 @@ tabulator = pn.widgets.Tabulator(
     name="Selected data",
 )
 
+def reset_coords(event):
+    ra.value = (-180, 180)
+    dec.value = (-90, 90)
+
+reset = pn.widgets.Button(name='Reset coordinates')
+reset.on_click(reset_coords)
+
 
 widgets = [
     cmap,
     ra,
     dec,
+    reset,
     project,
     session,
     observer,
