@@ -19,12 +19,6 @@ pn.extension(
     "tabulator", loading_spinner="dots", reuse_sessions="True", throttled="True"
 )
 
-LINK_SVG = """
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-up-right-square" viewBox="0 0 16 16">
-  <path fill-rule="evenodd" d="M15 2a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2zM0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm5.854 8.803a.5.5 0 1 1-.708-.707L9.243 6H6.475a.5.5 0 1 1 0-1h3.975a.5.5 0 0 1 .5.5v3.975a.5.5 0 1 1-1 0V6.707l-4.096 4.096z"/>
-</svg>
-"""
-
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -45,9 +39,7 @@ def get_data(full_data_path, metadata_path):
     return dataset, metadata
 
 
-# TODO: wrap_at (-180, 180)
-# TODO: multiindex ra, dec?
-# TODO: precompute archive link
+# TODO: slice bug
 # TODO: add 'help' or descriptions for filters
 
 # TODO: ask about metadata - multiple backends, procnames, obstypes, etc. per session?
@@ -88,7 +80,7 @@ cmap = pn.widgets.Select(
     value=cm["rainbow4"], options={c: cm[c] for c in cmaps}, name="Color map"
 )
 ra = pn.widgets.RangeSlider(
-    start=0, end=360, step=0.1, value=(0, 360), name="Right ascension (J2000)"
+    start=-180, end=180, step=0.1, value=(-180, 180), name="Right ascension (J2000)"
 )
 dec = pn.widgets.RangeSlider(
     start=-90, end=90, step=0.1, value=(-90, 90), name="Declination (J2000)"
@@ -261,16 +253,18 @@ def plot_points(
     print("Selecting data...")
     start = time.perf_counter()
     filtered = dataset
-    if ra != (0, 360):
+    if ra != (-180, 180):
         checkpoint = time.perf_counter()
+        ras = filtered.index.get_level_values("RAJ2000")
         filtered = filtered[
-            (filtered["RAJ2000"] >= ra[0]) & (filtered["RAJ2000"] < ra[1])
+            (ras >= ra[0]) & (ras < ra[1])
         ]
         print(f"Filter by ra: {time.perf_counter() - checkpoint}s")
     if dec != (-90, 90):
         checkpoint = time.perf_counter()
+        decs = filtered.index.get_level_values("DECJ2000")
         filtered = filtered[
-            (filtered["DECJ2000"] >= dec[0]) & (filtered["DECJ2000"] < dec[1])
+            (decs >= dec[0]) & (decs < dec[1])
         ]
         print(f"Filter by dec: {time.perf_counter() - checkpoint}s")
     if project:
@@ -466,12 +460,8 @@ def update_ra_dec(bounds):
 
 def update_tabulator(filtered):
     sessions = filtered.index.get_level_values("session").unique().tolist()
-    df = metadata[metadata["Session"].isin(sessions)]
-    df["Archive"] = [
-        f"""<a href='http://{alda_address}/disk/sessions/{session}/' target='_blank'>
-             <div title='View in archive'>{LINK_SVG}</div></a>"""
-        for session in df["Session"]
-    ]
+    df = pd.DataFrame()
+    df = metadata.loc[metadata["Session"].isin(sessions)]
     tabulator.value = df
     tabulator.formatters = {"Archive": {"type": "html", "field": "html"}}
 
