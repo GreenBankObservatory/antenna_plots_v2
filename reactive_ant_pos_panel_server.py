@@ -5,7 +5,7 @@ import argparse
 
 import pandas as pd
 
-from bokeh.models import BoxSelectTool, BoxAnnotation
+from bokeh.models import BoxSelectTool
 import panel as pn
 import holoviews as hv
 import holoviews.operation.datashader as hd
@@ -45,13 +45,16 @@ def get_data(full_data_path, metadata_path):
     return dataset, metadata
 
 
-# TODO: ** have tabulator update with filters, change tabulator so that it only includes filtered results?
+# TODO: wrap_at (-180, 180)
+# TODO: multiindex ra, dec?
+# TODO: precompute archive link
 # TODO: add 'help' or descriptions for filters
-# TODO: find out ways to prevent insane load time in beginning?
-# TODO: fix bug when deselecting tabulator row
+
+# TODO: ask about metadata - multiple backends, procnames, obstypes, etc. per session?
 # TODO: delete box
+# TODO: find out ways to prevent insane load time in beginning?
 # TODO: code better
-# TODO: precompute archive link - might need to wait until permanent alda address
+
 
 full_data_path, metadata_path, alda_address = parse_arguments()
 dataset, metadata = get_data(full_data_path, metadata_path)
@@ -76,9 +79,19 @@ for p in params:
     param_list = [element for element in param_list if not pd.isnull(element)]
     param_dict[p] = param_list
 cur_datetime = datetime.today()
+pc = crs.PlateCarree()
+moll = crs.Mollweide()
+prev_selected_session = ""
+
 
 cmap = pn.widgets.Select(
-    default=cm["rainbow4"], objects={c: cm[c] for c in cmaps}, label="Color map"
+    value=cm["rainbow4"], options={c: cm[c] for c in cmaps}, name="Color map"
+)
+ra = pn.widgets.RangeSlider(
+    start=0, end=360, step=0.1, value=(0, 360), name="Right ascension (J2000)"
+)
+dec = pn.widgets.RangeSlider(
+    start=-90, end=90, step=0.1, value=(-90, 90), name="Declination (J2000)"
 )
 project = pn.widgets.AutocompleteInput(
     options=param_dict["project"],
@@ -190,51 +203,10 @@ tabulator = pn.widgets.Tabulator(
 )
 
 
-def update_tabulator_bounds(bounds):
-    filtered = current_filtered
-    filtered = filtered[
-        (filtered["projected_x"] >= bounds[0])
-        & (filtered["projected_x"] < bounds[2])
-        & (filtered["projected_y"] >= bounds[1])
-        & (filtered["projected_y"] < bounds[3])
-    ]
-    param_dict["session"] = filtered.index.get_level_values("session").unique().tolist()
-    df = pd.DataFrame()
-    df = metadata[metadata["Session"].isin(param_dict["session"])]
-    # df["Archive"] = df.apply(
-    #     lambda row: f"""<a href='http://{alda_address}/disk/param_dict['session']/{row.Session}/' target='_blank'>
-    #         <div title='View in archive'>{LINK_SVG}</div></a>""",
-    #     axis=1,
-    # )
-    df["Archive"] = [
-        f"""<a href='http://{alda_address}/disk/param_dict['session']/{session}/' target='_blank'>
-             <div title='View in archive'>{LINK_SVG}</div></a>"""
-        for session in df["Session"]
-    ]
-    tabulator.value = df
-    tabulator.formatters = {"Archive": {"type": "html", "field": "html"}}
-
-
-def crosshair_info(x, y):
-    pc = crs.PlateCarree()
-    ra, dec = pc.transform_point(x, y, crs.Mollweide())
-    ra = round(ra, 1)
-    dec = round(dec, 1)
-    text = hv.Text(
-        x,
-        y,
-        f"RA: {ra}\N{DEGREE SIGN}\nDec: {dec}\N{DEGREE SIGN}",
-        halign="left",
-        valign="bottom",
-    )
-    return (
-        hv.HLine(y).opts(color="lightblue", line_width=0.5)
-        * hv.VLine(x).opts(color="lightblue", line_width=0.5)
-        * text
-    )
-
-
 widgets = [
+    cmap,
+    ra,
+    dec,
     project,
     session,
     observer,
@@ -245,12 +217,15 @@ widgets = [
     proc_name,
     obs_type,
     proc_scan,
+    proc_type,
     obj,
     script_name,
 ]
 
 
 @pn.depends(
+    ra=ra,
+    dec=dec,
     project=project,
     session=session,
     observer=observer,
@@ -266,6 +241,8 @@ widgets = [
     script_name=script_name,
 )
 def plot_points(
+    ra,
+    dec,
     project,
     session,
     observer,
@@ -281,22 +258,23 @@ def plot_points(
     script_name,
     **kwargs,
 ):
-    # project = project.value
-    # session = session.value
-    # observer = observer.value
-    # frontend = frontend.value
-    # backend = backend.value
-    # scan_number = scan_number.value
-    # scan_start = scan_start.value
-    # proc_name = proc_name.value
-    # obs_type = obs_type.value
-    # proc_scan = proc_scan.value
-    # obj = obj.value
-    # script_name = script_name.value
     print("Selecting data...")
     start = time.perf_counter()
     filtered = dataset
+    if ra != (0, 360):
+        checkpoint = time.perf_counter()
+        filtered = filtered[
+            (filtered["RAJ2000"] >= ra[0]) & (filtered["RAJ2000"] < ra[1])
+        ]
+        print(f"Filter by ra: {time.perf_counter() - checkpoint}s")
+    if dec != (-90, 90):
+        checkpoint = time.perf_counter()
+        filtered = filtered[
+            (filtered["DECJ2000"] >= dec[0]) & (filtered["DECJ2000"] < dec[1])
+        ]
+        print(f"Filter by dec: {time.perf_counter() - checkpoint}s")
     if project:
+        checkpoint = time.perf_counter()
         if project in param_dict["project"]:
             filtered = filtered.xs(project, level=0, drop_level=False)
         else:
@@ -305,6 +283,7 @@ def plot_points(
                 project for project in param_dict["project"] if project in project
             ]
             filtered = filtered[cur_projects.isin(filtered_projects)]
+        print(f"Filter by project: {time.perf_counter() - checkpoint}s")
     if session:
         checkpoint = time.perf_counter()
         if session in param_dict["session"]:
@@ -418,19 +397,19 @@ def plot_points(
             filtered = filtered[cur_script_names.isin(filtered_script_names)]
         print(f"Filter by script_name: {time.perf_counter() - checkpoint}s")
     print(f"Elapsed time: {time.perf_counter() - start}s")
-    global current_filtered
-    current_filtered = filtered
     points = gv.Points(
         filtered,
         kdims=["projected_x", "projected_y"],
-        vdims=["RAJ2000", "DECJ2000"],
-        crs=crs.Mollweide(),
+        crs=moll,
     )
     points = points.opts(
         gv.opts.Points(
-            projection=crs.Mollweide(), global_extent=True, width=800, height=400
+            projection=moll, global_extent=True, width=800, height=400
         )
     )
+
+    update_tabulator(filtered) # TODO: move somewhere better
+
     return points
 
 
@@ -441,21 +420,20 @@ def view(**kwargs):
         x_sampling=1,
         y_sampling=1,
     )
-    shaded = hd.shade(agg).opts(
-        projection=crs.Mollweide(),
+    shaded = hd.shade(agg, cmap=cmap.value).opts(
+        projection=moll,
         global_extent=True,
         width=900,
         height=450,
     )
 
     box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
-    box.add_subscriber(update_tabulator_bounds)
+    box.add_subscriber(update_ra_dec)
     bounds = hv.DynamicMap(
         lambda bounds: hv.Bounds(bounds).opts(color="DarkCyan"), streams=[box]
     )
     box_select_tool = BoxSelectTool(
         # persistent=True,
-        # overlay=BoxAnnotation(fill_color="#add8e6", fill_alpha=0.4),
     )
 
     pointer = streams.PointerXY(x=0, y=0, source=shaded)
@@ -470,26 +448,73 @@ def view(**kwargs):
     return plot
 
 
+def update_ra_dec(bounds):
+    mleft, mbottom, mright, mtop = bounds
+    pc_left_bottom = pc.transform_point(mleft, mbottom, moll)
+    pc_left_top = pc.transform_point(mleft, mtop, moll)
+    pc_right_bottom = pc.transform_point(mright, mbottom, moll)
+    pc_right_top = pc.transform_point(mright, mtop, moll)
+    pc_lefts = (pc_left_bottom[0], pc_left_top[0])
+    pc_rights = (pc_right_bottom[0], pc_right_top[0])
+    pc_left = min(pc_lefts)
+    pc_right = max(pc_rights)
+    pc_bottom = pc_left_bottom[1]
+    pc_top = pc_left_top[1]
+    ra.value = (pc_left, pc_right)
+    dec.value = (pc_bottom, pc_top)
+
+
+def update_tabulator(filtered):
+    sessions = filtered.index.get_level_values("session").unique().tolist()
+    df = metadata[metadata["Session"].isin(sessions)]
+    df["Archive"] = [
+        f"""<a href='http://{alda_address}/disk/sessions/{session}/' target='_blank'>
+             <div title='View in archive'>{LINK_SVG}</div></a>"""
+        for session in df["Session"]
+    ]
+    tabulator.value = df
+    tabulator.formatters = {"Archive": {"type": "html", "field": "html"}}
+
+
 def highlight_clicked(val, color):
     return f"background-color: {color}" if val else None
 
 
 def filter_session(event):
-    session = tabulator.value["Session"].iloc[event.row]
-    prev_session = ant_pos.session
-    if session == prev_session:
-        ant_pos.session = ""
+    print(event)
+    cur_session = tabulator.value["Session"].iloc[event.row]
+    prev_selected_session = session.value
+    if cur_session == prev_selected_session:
+        session.value = ""
         tabulator.style.applymap(
             highlight_clicked, color="white", subset=[event.row, slice(None)]
         )
     else:
-        ant_pos.session = session
+        session.value = cur_session
         tabulator.style.applymap(
             highlight_clicked, color="lightblue", subset=[event.row, slice(None)]
         )
 
 
 tabulator.on_click(filter_session)
+
+
+def crosshair_info(x, y):
+    ra, dec = pc.transform_point(x, y, moll)
+    ra = round(ra, 1)
+    dec = round(dec, 1)
+    text = hv.Text(
+        x,
+        y,
+        f"RA: {ra}\N{DEGREE SIGN}\nDec: {dec}\N{DEGREE SIGN}",
+        halign="left",
+        valign="bottom",
+    )
+    return (
+        hv.HLine(y).opts(color="lightblue", line_width=0.5)
+        * hv.VLine(x).opts(color="lightblue", line_width=0.5)
+        * text
+    )
 
 
 template = pn.template.BootstrapTemplate(

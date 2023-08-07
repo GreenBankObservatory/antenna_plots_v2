@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 import time
 import argparse
 
-import numpy as np
 import pandas as pd
 
 from bokeh.models import BoxSelectTool, BoxAnnotation
@@ -114,16 +113,16 @@ def update_tabulator(bounds):
         & (filtered["projected_y"] >= bounds[1])
         & (filtered["projected_y"] < bounds[3])
     ]
-    param_dict["session"] = filtered.index.get_level_values("session").unique().tolist()
+    sessions = filtered.index.get_level_values("session").unique().tolist()
     df = pd.DataFrame()
-    df = metadata[metadata["Session"].isin(param_dict["session"])]
+    df = metadata[metadata["Session"].isin(sessions)]
     # df["Archive"] = df.apply(
-    #     lambda row: f"""<a href='http://{alda_address}/disk/param_dict['session']/{row.Session}/' target='_blank'>
+    #     lambda row: f"""<a href='http://{alda_address}/disk/sessions/{row.Session}/' target='_blank'>
     #         <div title='View in archive'>{LINK_SVG}</div></a>""",
     #     axis=1,
     # )
     df["Archive"] = [
-        f"""<a href='http://{alda_address}/disk/param_dict['session']/{session}/' target='_blank'>
+        f"""<a href='http://{alda_address}/disk/sessions/{session}/' target='_blank'>
              <div title='View in archive'>{LINK_SVG}</div></a>"""
         for session in df["Session"]
     ]
@@ -176,6 +175,7 @@ class AntennaPositionExplorer(param.Parameterized):
     )
     obj = param.String("")
     script_name = param.String("")
+
 
     @param.depends(
         "project",
