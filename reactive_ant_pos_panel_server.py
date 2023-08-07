@@ -41,9 +41,9 @@ def get_data(full_data_path, metadata_path):
 
 # TODO: slice bug
 # TODO: add 'help' or descriptions for filters
+# TODO: reset button for RA/Dec
 
 # TODO: ask about metadata - multiple backends, procnames, obstypes, etc. per session?
-# TODO: delete box
 # TODO: find out ways to prevent insane load time in beginning?
 # TODO: code better
 
@@ -407,14 +407,15 @@ def plot_points(
     return points
 
 
-def view(**kwargs):
+@pn.depends(cmap)
+def view(cmap, **kwargs):
     points = hv.DynamicMap(plot_points)
     agg = hd.rasterize(
         points,
         x_sampling=1,
         y_sampling=1,
     )
-    shaded = hd.shade(agg, cmap=cmap.value).opts(
+    shaded = hd.shade(agg, cmap=cmap).opts(
         projection=moll,
         global_extent=True,
         width=900,
@@ -423,9 +424,6 @@ def view(**kwargs):
 
     box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
     box.add_subscriber(update_ra_dec)
-    bounds = hv.DynamicMap(
-        lambda bounds: hv.Bounds(bounds).opts(color="DarkCyan"), streams=[box]
-    )
     box_select_tool = BoxSelectTool(
         # persistent=True,
     )
@@ -435,7 +433,6 @@ def view(**kwargs):
     plot = (
         shaded.opts(tools=[box_select_tool])
         * gv.feature.grid()
-        * bounds
         * hv.DynamicMap(crosshair_info, streams=[pointer])
     )
 
