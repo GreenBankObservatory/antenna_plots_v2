@@ -14,7 +14,7 @@ import geoviews as gv
 from cartopy import crs
 from colorcet import cm
 
-hv.extension("bokeh", logo=False)
+hv.extension("bokeh")
 pn.extension(
     "tabulator", loading_spinner="dots", reuse_sessions="True", throttled="True"
 )
@@ -24,9 +24,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("full_data_path")
     parser.add_argument("metadata_path")
-    parser.add_argument("alda_address")
     args = parser.parse_args()
-    return args.full_data_path, args.metadata_path, args.alda_address
+    return args.full_data_path, args.metadata_path
 
 
 @pn.cache
@@ -39,7 +38,6 @@ def get_data(full_data_path, metadata_path):
     return dataset, metadata
 
 
-# TODO: slice bug
 # TODO: add 'help' or descriptions for filters
 
 # TODO: ask about metadata - multiple backends, procnames, obstypes, etc. per session?
@@ -47,7 +45,7 @@ def get_data(full_data_path, metadata_path):
 # TODO: code better
 
 
-full_data_path, metadata_path, alda_address = parse_arguments()
+full_data_path, metadata_path = parse_arguments()
 dataset, metadata = get_data(full_data_path, metadata_path)
 current_filtered = dataset.copy()
 cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]
@@ -185,7 +183,6 @@ tabulator = pn.widgets.Tabulator(
             "script_name",
         ]
     ),
-    # selectable="True",
     disabled=True,
     show_index=False,
     pagination="remote",
@@ -425,8 +422,8 @@ def view(cmap, **kwargs):
     shaded = hd.shade(agg, cmap=cmap).opts(
         projection=moll,
         global_extent=True,
-        width=900,
-        height=450,
+        width=800,
+        height=400,
     )
 
     box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
@@ -464,8 +461,7 @@ def update_ra_dec(bounds):
 
 def update_tabulator(filtered):
     sessions = filtered.index.get_level_values("session").unique().tolist()
-    df = pd.DataFrame()
-    df = metadata.loc[metadata["Session"].isin(sessions)]
+    df = metadata[metadata["Session"].isin(sessions)]
     tabulator.value = df
     tabulator.formatters = {"Archive": {"type": "html", "field": "html"}}
 
@@ -480,14 +476,8 @@ def filter_session(event):
     prev_selected_session = session.value
     if cur_session == prev_selected_session:
         session.value = ""
-        tabulator.style.applymap(
-            highlight_clicked, color="white", subset=[event.row, slice(None)]
-        )
     else:
         session.value = cur_session
-        tabulator.style.applymap(
-            highlight_clicked, color="lightblue", subset=[event.row, slice(None)]
-        )
 
 
 tabulator.on_click(filter_session)
@@ -521,4 +511,4 @@ template.servable()
 
 # to run:
 # panel serve ant_pos_panel_server.py --allow-websocket-origin [address]
-# --args [full data parquet] [metadata parquet] [alda address]
+# --args [full data parquet] [metadata parquet]
