@@ -37,8 +37,7 @@ def get_data(full_data_path, metadata_path):
     return dataset, metadata
 
 
-# TODO: add 'help' or descriptions for filters
-
+# TODO: reset all filters button?
 # TODO: ask about metadata - multiple backends, procnames, obstypes, etc. per session?
 # TODO: find out ways to prevent insane load time in beginning?
 # TODO: code better
@@ -46,7 +45,7 @@ def get_data(full_data_path, metadata_path):
 
 full_data_path, metadata_path = parse_arguments()
 dataset, metadata = get_data(full_data_path, metadata_path)
-cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"] # color maps
+cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]  # color maps
 
 # Generate lists of unique values for each parameter
 param_dict = {}
@@ -72,7 +71,7 @@ for p in params:
 cur_datetime = datetime.today()
 pc = crs.PlateCarree()
 moll = crs.Mollweide()
-prev_selected_session = "" # for tabulator clicking
+prev_selected_session = ""  # for tabulator clicking
 
 
 # Generate widgets
@@ -194,11 +193,13 @@ tabulator = pn.widgets.Tabulator(
     name="Filtered data",
 )
 
+
 def reset_coords(event):
     ra.value = (-180, 180)
     dec.value = (-90, 90)
 
-reset = pn.widgets.Button(name='Reset coordinates')
+
+reset = pn.widgets.Button(name="Reset coordinates")
 reset.on_click(reset_coords)
 
 
@@ -265,16 +266,12 @@ def plot_points(
     if ra != (-180, 180):
         checkpoint = time.perf_counter()
         ras = filtered.index.get_level_values("RAJ2000")
-        filtered = filtered[
-            (ras >= ra[0]) & (ras < ra[1])
-        ]
+        filtered = filtered[(ras >= ra[0]) & (ras < ra[1])]
         print(f"Filter by ra: {time.perf_counter() - checkpoint}s")
     if dec != (-90, 90):
         checkpoint = time.perf_counter()
         decs = filtered.index.get_level_values("DECJ2000")
-        filtered = filtered[
-            (decs >= dec[0]) & (decs < dec[1])
-        ]
+        filtered = filtered[(decs >= dec[0]) & (decs < dec[1])]
         print(f"Filter by dec: {time.perf_counter() - checkpoint}s")
     if project:
         checkpoint = time.perf_counter()
@@ -406,12 +403,10 @@ def plot_points(
         crs=moll,
     )
     points = points.opts(
-        gv.opts.Points(
-            projection=moll, global_extent=True, width=800, height=400
-        )
+        gv.opts.Points(projection=moll, global_extent=True, width=800, height=400)
     )
 
-    update_tabulator(filtered) # TODO: move somewhere better?
+    update_tabulator(filtered)  # TODO: move somewhere better?
 
     return points
 
@@ -436,10 +431,10 @@ def view(cmap, **kwargs):
     box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
     box.add_subscriber(update_ra_dec)
 
-    pointer = streams.PointerXY(x=0, y=0, source=shaded) # for crosshair
+    pointer = streams.PointerXY(x=0, y=0, source=shaded)  # for crosshair
 
     plot = (
-        shaded.opts(tools=["box_select"])
+        shaded.opts(tools=["box_select"], active_tools=["pan", "wheel_zoom"])
         * gv.feature.grid()
         * hv.DynamicMap(crosshair, streams=[pointer])
     )
@@ -449,7 +444,7 @@ def view(cmap, **kwargs):
 
 def update_ra_dec(bounds):
     """Changes the RA/Dec widgets based on bounds returned by BoxSelectTool"""
-    mleft, mbottom, mright, mtop = bounds # bounds in Mollweide projection
+    mleft, mbottom, mright, mtop = bounds  # bounds in Mollweide projection
 
     # Find four corners of rectangle in PlateCarree projection
     pc_left_bottom = pc.transform_point(mleft, mbottom, moll)
@@ -488,7 +483,7 @@ def filter_session(event):
         session.value = cur_session
 
 
-tabulator.on_click(filter_session) # Registers callback
+tabulator.on_click(filter_session)  # Registers callback
 
 
 def crosshair(x, y):
@@ -502,7 +497,7 @@ def crosshair(x, y):
         f"RA: {ra}\N{DEGREE SIGN}\nDec: {dec}\N{DEGREE SIGN}",
         halign="left",
         valign="bottom",
-    )
+    ).opts(color="#0072B5")
     return (
         hv.HLine(y).opts(color="lightblue", line_width=0.5)
         * hv.VLine(x).opts(color="lightblue", line_width=0.5)
@@ -510,10 +505,32 @@ def crosshair(x, y):
     )
 
 
-template = pn.template.BootstrapTemplate(
+text = """
+### Introduction
+This dashboard is a visual tool to explore and interact with archived GBT data. 
+The plot shows GBT antenna positions in the sky with color mapped to density of points. 
+Applying filters will update the plot and data table with the corresponding GBT sessions. 
+Beware of bugs! Also, no guarantees are made about the accuracy of the displayed information.
+
+### Features
+- The project, session, observer, object, and script name widgets allow you to filter by substring (e.g. 'Armen' will also return 'Armentrout')
+- To reset the proc name, observation type, or proc scan widgets, choose the option called 'All'
+- Click on a row in the data table to filter by that session. To undo that, click again on the same row
+- The last column of the table is a link to the corresponding page in the GBT archive
+- Use the box select tool (dashed box button to the right of the plot) to filter by a rectangular region that you draw on the plot
+- You can toggle between light/dark theme. *However*, this will reset the widgets and reload the page
+
+### Known bug
+Sometimes, the plot gets filled with a solid color. If that happens, try removing a filter. If the problem persists, reload the page. 
+This could happen if you apply filters such that there is no corresponding data, or if you use the box select tool on a region outside the extents of the plot.
+\n
+---
+"""
+
+template = pn.template.FastListTemplate(
     title="GBT Antenna Data Interactive Dashboard",
-    sidebar=widgets,
-    header_background="LightSeaGreen",
+    sidebar=[pn.pane.Markdown(text)] + widgets,
+    logo="https://greenbankobservatory.org/wp-content/uploads/2019/10/GBO-Primary-HighRes-White.png",
 )
 template.main.append(pn.Column(view, tabulator))
 template.servable()
