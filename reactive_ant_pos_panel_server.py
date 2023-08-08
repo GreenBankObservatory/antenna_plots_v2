@@ -5,7 +5,6 @@ import argparse
 
 import pandas as pd
 
-from bokeh.models import BoxSelectTool
 import panel as pn
 import holoviews as hv
 import holoviews.operation.datashader as hd
@@ -47,8 +46,9 @@ def get_data(full_data_path, metadata_path):
 
 full_data_path, metadata_path = parse_arguments()
 dataset, metadata = get_data(full_data_path, metadata_path)
-current_filtered = dataset.copy()
-cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]
+cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"] # color maps
+
+# Generate lists of unique values for each parameter
 param_dict = {}
 params = [
     "project",
@@ -65,14 +65,17 @@ params = [
 ]
 for p in params:
     param_list = dataset.index.get_level_values(p).unique().tolist()
+    # ignore nans for now
     param_list = [element for element in param_list if not pd.isnull(element)]
     param_dict[p] = param_list
+
 cur_datetime = datetime.today()
 pc = crs.PlateCarree()
 moll = crs.Mollweide()
-prev_selected_session = ""
+prev_selected_session = "" # for tabulator clicking
 
 
+# Generate widgets
 cmap = pn.widgets.Select(
     value=cm["rainbow4"], options={c: cm[c] for c in cmaps}, name="Color map"
 )
@@ -168,26 +171,27 @@ scan_number = pn.widgets.IntRangeSlider(
 tabulator = pn.widgets.Tabulator(
     value=pd.DataFrame(
         columns=[
-            "project",
-            "session",
-            "scan_start",
-            "scan_number",
-            "observer",
-            "frontend",
-            "backend",
-            "procname",
-            "obstype",
-            "procscan",
-            "proctype",
-            "object",
-            "script_name",
+            "Project",
+            "Session",
+            "Scan start",
+            "# of Scans",
+            "Observer",
+            "Frontend",
+            "Backend",
+            "ProcName",
+            "Obs type",
+            "ProcScan",
+            "ProcType",
+            "Object",
+            "Script name",
+            "Archive",
         ]
     ),
     disabled=True,
     show_index=False,
     pagination="remote",
-    page_size=10,
-    name="Selected data",
+    page_size=15,
+    name="Filtered data",
 )
 
 def reset_coords(event):
@@ -254,6 +258,7 @@ def plot_points(
     script_name,
     **kwargs,
 ):
+    """Filter dataframe based on widget values and generate Geoviews points"""
     print("Selecting data...")
     start = time.perf_counter()
     filtered = dataset
@@ -406,13 +411,15 @@ def plot_points(
         )
     )
 
-    update_tabulator(filtered) # TODO: move somewhere better
+    update_tabulator(filtered) # TODO: move somewhere better?
 
     return points
 
 
 @pn.depends(cmap)
 def view(cmap, **kwargs):
+    """Creates the plot that updates with widget values"""
+
     points = hv.DynamicMap(plot_points)
     agg = hd.rasterize(
         points,
@@ -428,50 +435,51 @@ def view(cmap, **kwargs):
 
     box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
     box.add_subscriber(update_ra_dec)
-    box_select_tool = BoxSelectTool(
-        # persistent=True,
-    )
 
-    pointer = streams.PointerXY(x=0, y=0, source=shaded)
+    pointer = streams.PointerXY(x=0, y=0, source=shaded) # for crosshair
 
     plot = (
-        shaded.opts(tools=[box_select_tool])
+        shaded.opts(tools=["box_select"])
         * gv.feature.grid()
-        * hv.DynamicMap(crosshair_info, streams=[pointer])
+        * hv.DynamicMap(crosshair, streams=[pointer])
     )
 
     return plot
 
 
 def update_ra_dec(bounds):
-    mleft, mbottom, mright, mtop = bounds
+    """Changes the RA/Dec widgets based on bounds returned by BoxSelectTool"""
+    mleft, mbottom, mright, mtop = bounds # bounds in Mollweide projection
+
+    # Find four corners of rectangle in PlateCarree projection
     pc_left_bottom = pc.transform_point(mleft, mbottom, moll)
     pc_left_top = pc.transform_point(mleft, mtop, moll)
     pc_right_bottom = pc.transform_point(mright, mbottom, moll)
     pc_right_top = pc.transform_point(mright, mtop, moll)
-    pc_lefts = (pc_left_bottom[0], pc_left_top[0])
-    pc_rights = (pc_right_bottom[0], pc_right_top[0])
-    pc_left = min(pc_lefts)
-    pc_right = max(pc_rights)
+
+    # Projection distorts RA, so take widest range
+    pc_left = min(pc_left_bottom[0], pc_left_top[0])
+    pc_right = max(pc_right_bottom[0], pc_right_top[0])
+
+    # Dec doesn't vary
     pc_bottom = pc_left_bottom[1]
     pc_top = pc_left_top[1]
+
+    # Update widgets
     ra.value = (pc_left, pc_right)
     dec.value = (pc_bottom, pc_top)
 
 
 def update_tabulator(filtered):
+    """Updates tabulator based on current filtered dataframe"""
     sessions = filtered.index.get_level_values("session").unique().tolist()
     df = metadata[metadata["Session"].isin(sessions)]
     tabulator.value = df
     tabulator.formatters = {"Archive": {"type": "html", "field": "html"}}
 
 
-def highlight_clicked(val, color):
-    return f"background-color: {color}" if val else None
-
-
 def filter_session(event):
-    print(event)
+    """Called when the tabulator registers a click event. Changes the session filter to the clicked value"""
     cur_session = tabulator.value["Session"].iloc[event.row]
     prev_selected_session = session.value
     if cur_session == prev_selected_session:
@@ -480,10 +488,11 @@ def filter_session(event):
         session.value = cur_session
 
 
-tabulator.on_click(filter_session)
+tabulator.on_click(filter_session) # Registers callback
 
 
-def crosshair_info(x, y):
+def crosshair(x, y):
+    """Generates crosshair and label from coordinates of PointerXY stream"""
     ra, dec = pc.transform_point(x, y, moll)
     ra = round(ra, 1)
     dec = round(dec, 1)
