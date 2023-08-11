@@ -38,9 +38,6 @@ def get_data(full_data_path, metadata_path):
 
 
 # TODO: reset all filters button?
-# TODO: ask about metadata - multiple backends, procnames, obstypes, etc. per session?
-# TODO: find out ways to prevent insane load time in beginning?
-# TODO: code better
 
 
 full_data_path, metadata_path = parse_arguments()
@@ -164,7 +161,7 @@ proc_type = pn.widgets.MultiSelect(
     value=param_dict["proctype"], options=param_dict["proctype"], name="Proc type"
 )
 scan_number = pn.widgets.IntRangeSlider(
-    start=0, end=5000, step=1, value=(0, 5000), name="# Scans"
+    start=0, end=5000, step=1, value=(0, 5000), name="Scan Number"
 )
 
 tabulator = pn.widgets.Tabulator(
@@ -199,11 +196,19 @@ def reset_coords(event):
     dec.value = (-90, 90)
 
 
+def about_callback(event):
+    template.open_modal()
+
+
 reset = pn.widgets.Button(name="Reset coordinates")
 reset.on_click(reset_coords)
 
+modal_btn = pn.widgets.Button(name="Click for more information")
+modal_btn.on_click(about_callback)
+
 
 widgets = [
+    modal_btn,
     cmap,
     ra,
     dec,
@@ -427,6 +432,7 @@ def view(cmap, **kwargs):
         width=800,
         height=400,
     )
+    spread = hd.dynspread(shaded)
 
     box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
     box.add_subscriber(update_ra_dec)
@@ -434,7 +440,7 @@ def view(cmap, **kwargs):
     pointer = streams.PointerXY(x=0, y=0, source=shaded)  # for crosshair
 
     plot = (
-        shaded.opts(tools=["box_select"], active_tools=["pan", "wheel_zoom"])
+        spread.opts(tools=["box_select"], active_tools=["pan", "wheel_zoom"])
         * gv.feature.grid()
         * hv.DynamicMap(crosshair, streams=[pointer])
     )
@@ -529,10 +535,11 @@ This could happen if you apply filters such that there is no corresponding data,
 
 template = pn.template.FastListTemplate(
     title="GBT Antenna Data Interactive Dashboard",
-    sidebar=[pn.pane.Markdown(text)] + widgets,
+    sidebar=widgets,
     logo="https://greenbankobservatory.org/wp-content/uploads/2019/10/GBO-Primary-HighRes-White.png",
 )
 template.main.append(pn.Column(view, tabulator))
+template.modal.append(text)
 template.servable()
 
 # to run:
