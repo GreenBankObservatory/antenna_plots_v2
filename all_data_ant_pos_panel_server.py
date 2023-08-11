@@ -45,6 +45,7 @@ def get_data(full_data_path, metadata_path):
 
 full_data_path, metadata_path = parse_arguments()
 dataset, metadata = get_data(full_data_path, metadata_path)
+metadata = metadata[~metadata.index.duplicated(keep='first')]
 cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]  # color maps
 
 # Generate lists of unique values for each parameter
@@ -58,22 +59,24 @@ params = [
     "frontend",
     "backend",
     "procname",
-#     "obstype",
-#     "procscan",
-#     "proctype",
+    #     "obstype",
+    #     "procscan",
+    #     "proctype",
     "object",
     "script_name",
 ]
 for p in params:
     param_list = metadata.index.get_level_values(p).unique().tolist()
     # ignore nans for now
-    param_list = [element for element in param_list if not pd.isnull(element) and element != None]
+    param_list = [
+        element for element in param_list if not pd.isnull(element) and element != None
+    ]
     param_dict[p] = param_list
 
 # cur_datetime = datetime.today()
 pc = crs.PlateCarree()
 moll = crs.Mollweide()
-# prev_selected_session = ""  # for tabulator clicking
+prev_selected_session = ""  # for tabulator clicking
 
 
 # Generate widgets
@@ -174,15 +177,15 @@ tabulator = pn.widgets.Tabulator(
         columns=[
             "Project",
             "Session",
-#             "Scan start",
-#             "# of Scans",
+            #             "Scan start",
+            #             "# of Scans",
             "Observer",
             "Frontend",
             "Backend",
             "ProcName",
-#             "Obs type",
-#             "ProcScan",
-#             "ProcType",
+            #             "Obs type",
+            #             "ProcScan",
+            #             "ProcType",
             "Object",
             "Script name",
             "Archive",
@@ -194,6 +197,19 @@ tabulator = pn.widgets.Tabulator(
     page_size=15,
     name="Filtered data",
 )
+
+
+# def update_tabulator(bounds):
+#     filtered = dataset
+#     filtered = filtered[
+#         (filtered["ra"] >= bounds[0])
+#         & (filtered["ra"] < bounds[2])
+#         & (filtered["dec"] >= bounds[1])
+#         & (filtered["dec"] < bounds[3])
+#     ]
+#     sessions = filtered["session"].unique()
+#     df = metadata[metadata["session"].isin(sessions)]
+#     tabulator.value = df
 
 
 def reset_coords(event):
@@ -215,33 +231,53 @@ widgets = [
     observer,
     frontend,
     backend,
-#     scan_number,
-#     scan_start,
+    #     scan_number,
+    #     scan_start,
     proc_name,
-#     obs_type,
-#     proc_scan,
-#     proc_type,
+    #     obs_type,
+    #     proc_scan,
+    #     proc_type,
     obj,
     script_name,
 ]
 
 
+def project_bounds(left, bottom, right, top):
+    moll_left_bottom = moll.transform_point(left, bottom, pc)
+    moll_left_top = moll.transform_point(left, top, pc)
+    moll_right_bottom = moll.transform_point(right, bottom, pc)
+    moll_right_top = moll.transform_point(right, top, pc)
+
+    # Projection distorts RA, so take widest range
+    moll_left = min(moll_left_bottom[0], moll_left_top[0])
+    moll_right = max(moll_right_bottom[0], moll_right_top[0])
+
+    # Dec doesn't vary
+    moll_bottom = moll_left_bottom[1]
+    moll_top = moll_left_top[1]
+
+    # Update widgets
+    ra = (moll_left, moll_right)
+    dec = (moll_bottom, moll_top)
+    return ra, dec
+
+
 @pn.depends(
-ra=ra,
-dec=dec,
-project=project,
-session=session,
-observer=observer,
-frontend=frontend,
-backend=backend,
-# scan_number=scan_number,
-# scan_start=scan_start,
-proc_name=proc_name,
-# obs_type=obs_type,
-# proc_scan=proc_scan,
-# proc_type=proc_type,
-obj=obj,
-script_name=script_name,
+    ra=ra,
+    dec=dec,
+    project=project,
+    session=session,
+    observer=observer,
+    frontend=frontend,
+    backend=backend,
+    # scan_number=scan_number,
+    # scan_start=scan_start,
+    proc_name=proc_name,
+    # obs_type=obs_type,
+    # proc_scan=proc_scan,
+    # proc_type=proc_type,
+    obj=obj,
+    script_name=script_name,
 )
 def plot_points(
     ra,
@@ -263,20 +299,22 @@ def plot_points(
 ):
     """Filter dataframe based on widget values and generate Geoviews points"""
     filtered = metadata
-    filtered_by_pos = dataset
-    if ra != (-180, 180):
+    if ra != (-180, 180) or dec != (-90, 90):
         checkpoint = time.perf_counter()
         # ras = filtered.index.get_level_values("RAJ2000")
-        # filtered = filtered[(ras >= ra[0]) & (ras < ra[1])]
-        print(f"Filter by ra: {time.perf_counter() - checkpoint}s")
-    if dec != (-90, 90):
-        checkpoint = time.perf_counter()
-        # decs = filtered.index.get_level_values("DECJ2000")
-        # filtered = filtered[(decs >= dec[0]) & (decs < dec[1])]
-        print(f"Filter by dec: {time.perf_counter() - checkpoint}s")
+        ra, dec = project_bounds(ra[0], dec[0], ra[1], dec[1])
+        # There's a problem here
+        filtered = filtered[
+            (filtered["ra"] >= ra[0])
+            & (filtered["ra"] < ra[1])
+            & (filtered["dec"] >= dec[0])
+            & (filtered["dec"] < dec[1])
+        ]
+        print(filtered)
+        print(f"Filter by ra/dec: {time.perf_counter() - checkpoint}s")
     if project:
         checkpoint = time.perf_counter()
-    #     filtered = filtered[filtered["project"]==project]
+        #     filtered = filtered[filtered["project"]==project]
         if project in param_dict["project"]:
             filtered = filtered.xs(project, level=0, drop_level=False)
         else:
@@ -288,15 +326,15 @@ def plot_points(
         print(f"Filter by project: {time.perf_counter() - checkpoint}s")
     if session:
         checkpoint = time.perf_counter()
-        filtered = filtered[filtered["session"]==session]
-    #     if session in param_dict["session"]:
-    #         filtered = filtered.xs(session, level=1, drop_level=False)
-    #     else:
-    #         cur_sessions = filtered.index.get_level_values("session")
-    #         filtered_sessions = [
-    #             session for session in param_dict["session"] if session in session
-    #         ]
-    #         filtered = filtered[cur_sessions.isin(filtered_sessions)]
+        filtered = filtered[filtered["session"] == session]
+        #     if session in param_dict["session"]:
+        #         filtered = filtered.xs(session, level=1, drop_level=False)
+        #     else:
+        #         cur_sessions = filtered.index.get_level_values("session")
+        #         filtered_sessions = [
+        #             session for session in param_dict["session"] if session in session
+        #         ]
+        #         filtered = filtered[cur_sessions.isin(filtered_sessions)]
         print(f"Filter by session: {time.perf_counter() - checkpoint}s")
     if observer:
         checkpoint = time.perf_counter()
@@ -389,7 +427,7 @@ def plot_points(
     if script_name:
         checkpoint = time.perf_counter()
         if script_name in param_dict["script_name"]:
-            filtered = filtered.xs(script_name, level='script_name', drop_level=False)
+            filtered = filtered.xs(script_name, level="script_name", drop_level=False)
         else:
             cur_script_names = filtered.index.get_level_values("script_name")
             filtered_script_names = [
@@ -400,6 +438,7 @@ def plot_points(
             filtered = filtered[cur_script_names.isin(filtered_script_names)]
         print(f"Filter by script_name: {time.perf_counter() - checkpoint}s")
     sessions = filtered["session"]
+
     pos_data = dataset[dataset["session"].isin(sessions)]
     points = gv.Points(
         pos_data,
@@ -407,10 +446,12 @@ def plot_points(
         crs=crs.Mollweide(),
     )
     points = points.opts(
-        gv.opts.Points(projection=crs.Mollweide(), global_extent=True, width=800, height=400)
+        gv.opts.Points(
+            projection=crs.Mollweide(), global_extent=True, width=800, height=400
+        )
     )
 
-    update_tabulator(filtered)  # TODO: move somewhere better?
+    update_tabulator(sessions)  # TODO: move somewhere better?
 
     return points
 
@@ -473,18 +514,18 @@ def update_ra_dec(bounds):
     dec.value = (pc_bottom, pc_top)
 
 
-def update_tabulator(filtered):
+def update_tabulator(sessions):
     """Updates tabulator based on current filtered dataframe"""
     # sessions = filtered.index.get_level_values("session").unique().tolist()
-    # df = metadata[metadata["Session"].isin(sessions)]
-    # tabulator.value = df
-    tabulator.value = filtered
+    df = metadata[metadata["session"].isin(sessions)]
+    tabulator.value = df
+    # tabulator.value = filtered
     tabulator.formatters = {"Archive": {"type": "html", "field": "html"}}
 
 
 def filter_session(event):
     """Called when the tabulator registers a click event. Changes the session filter to the clicked value"""
-    cur_session = tabulator.value["Session"].iloc[event.row]
+    cur_session = tabulator.value["session"].iloc[event.row]
     prev_selected_session = session.value
     if cur_session == prev_selected_session:
         session.value = ""
@@ -542,7 +583,7 @@ template = pn.template.FastListTemplate(
     sidebar=widgets,
     logo="https://greenbankobservatory.org/wp-content/uploads/2019/10/GBO-Primary-HighRes-White.png",
 )
-template.main.append(pn.Column(view))
+template.main.append(pn.Column(view, tabulator))
 template.servable()
 
 # to run:
