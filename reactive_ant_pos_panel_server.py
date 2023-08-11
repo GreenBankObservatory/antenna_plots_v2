@@ -70,15 +70,22 @@ pc = crs.PlateCarree()
 moll = crs.Mollweide()
 prev_selected_session = ""  # for tabulator clicking
 
+default_ranges = {
+    "RAJ2000": (-180, 180),
+    "DECJ2000": (-90, 90),
+    "scan_number": (0, 5000),
+    "scan_start": (datetime(2002, 1, 1), cur_datetime - timedelta(days=1)),
+}
+
 
 # Generate widgets
 cmap = pn.widgets.Select(
     value=cm["rainbow4"], options={c: cm[c] for c in cmaps}, name="Color map"
 )
-ra = pn.widgets.RangeSlider(
+RAJ2000 = pn.widgets.RangeSlider(
     start=-180, end=180, step=0.1, value=(-180, 180), name="Right ascension (J2000)"
 )
-dec = pn.widgets.RangeSlider(
+DECJ2000 = pn.widgets.RangeSlider(
     start=-90, end=90, step=0.1, value=(-90, 90), name="Declination (J2000)"
 )
 project = pn.widgets.AutocompleteInput(
@@ -111,7 +118,7 @@ scan_start = pn.widgets.DatetimeRangeInput(
     value=(datetime(2002, 1, 1), cur_datetime - timedelta(days=1)),
     name="Date and time of first scan",
 )
-proc_name = pn.widgets.AutocompleteInput(
+procname = pn.widgets.AutocompleteInput(
     options=["All"] + param_dict["procname"],
     value="All",
     restrict=True,
@@ -119,7 +126,7 @@ proc_name = pn.widgets.AutocompleteInput(
     case_sensitive=False,
     name="Proc names",
 )
-obs_type = pn.widgets.AutocompleteInput(
+obstype = pn.widgets.AutocompleteInput(
     options=["All"] + param_dict["obstype"],
     value="All",
     restrict=True,
@@ -127,7 +134,7 @@ obs_type = pn.widgets.AutocompleteInput(
     case_sensitive=False,
     name="Observation types",
 )
-proc_scan = pn.widgets.AutocompleteInput(
+procscan = pn.widgets.AutocompleteInput(
     options=["All"] + param_dict["procscan"],
     value="All",
     restrict=True,
@@ -157,7 +164,7 @@ frontend = pn.widgets.MultiSelect(
 backend = pn.widgets.MultiSelect(
     value=param_dict["backend"], options=param_dict["backend"], name="Backend"
 )
-proc_type = pn.widgets.MultiSelect(
+proctype = pn.widgets.MultiSelect(
     value=param_dict["proctype"], options=param_dict["proctype"], name="Proc type"
 )
 scan_number = pn.widgets.IntRangeSlider(
@@ -192,8 +199,8 @@ tabulator = pn.widgets.Tabulator(
 
 
 def reset_coords(event):
-    ra.value = (-180, 180)
-    dec.value = (-90, 90)
+    RAJ2000.value = (-180, 180)
+    DECJ2000.value = (-90, 90)
 
 
 def about_callback(event):
@@ -210,8 +217,8 @@ modal_btn.on_click(about_callback)
 widgets = [
     modal_btn,
     cmap,
-    ra,
-    dec,
+    RAJ2000,
+    DECJ2000,
     reset,
     project,
     session,
@@ -220,18 +227,18 @@ widgets = [
     backend,
     scan_number,
     scan_start,
-    proc_name,
-    obs_type,
-    proc_scan,
-    proc_type,
+    procname,
+    obstype,
+    procscan,
+    proctype,
     obj,
     script_name,
 ]
 
 
 @pn.depends(
-    ra=ra,
-    dec=dec,
+    RAJ2000=RAJ2000,
+    DECJ2000=DECJ2000,
     project=project,
     session=session,
     observer=observer,
@@ -239,16 +246,16 @@ widgets = [
     backend=backend,
     scan_number=scan_number,
     scan_start=scan_start,
-    proc_name=proc_name,
-    obs_type=obs_type,
-    proc_scan=proc_scan,
-    proc_type=proc_type,
+    procname=procname,
+    obstype=obstype,
+    procscan=procscan,
+    proctype=proctype,
     obj=obj,
     script_name=script_name,
 )
 def plot_points(
-    ra,
-    dec,
+    RAJ2000,
+    DECJ2000,
     project,
     session,
     observer,
@@ -256,151 +263,78 @@ def plot_points(
     backend,
     scan_number,
     scan_start,
-    proc_name,
-    obs_type,
-    proc_scan,
-    proc_type,
+    procname,
+    obstype,
+    procscan,
+    proctype,
     obj,
     script_name,
-    **kwargs,
 ):
     """Filter dataframe based on widget values and generate Geoviews points"""
     print("Selecting data...")
     start = time.perf_counter()
     filtered = dataset
-    if ra != (-180, 180):
-        checkpoint = time.perf_counter()
-        ras = filtered.index.get_level_values("RAJ2000")
-        filtered = filtered[(ras >= ra[0]) & (ras < ra[1])]
-        print(f"Filter by ra: {time.perf_counter() - checkpoint}s")
-    if dec != (-90, 90):
-        checkpoint = time.perf_counter()
-        decs = filtered.index.get_level_values("DECJ2000")
-        filtered = filtered[(decs >= dec[0]) & (decs < dec[1])]
-        print(f"Filter by dec: {time.perf_counter() - checkpoint}s")
-    if project:
-        checkpoint = time.perf_counter()
-        if project in param_dict["project"]:
-            filtered = filtered.xs(project, level=0, drop_level=False)
-        else:
-            cur_projects = filtered.index.get_level_values("project")
-            filtered_projects = [
-                project for project in param_dict["project"] if project in project
-            ]
-            filtered = filtered[cur_projects.isin(filtered_projects)]
-        print(f"Filter by project: {time.perf_counter() - checkpoint}s")
-    if session:
-        checkpoint = time.perf_counter()
-        if session in param_dict["session"]:
-            filtered = filtered.xs(session, level=1, drop_level=False)
-        else:
-            cur_sessions = filtered.index.get_level_values("session")
-            filtered_sessions = [
-                session for session in param_dict["session"] if session in session
-            ]
-            filtered = filtered[cur_sessions.isin(filtered_sessions)]
-        print(f"Filter by session: {time.perf_counter() - checkpoint}s")
-    if observer:
-        checkpoint = time.perf_counter()
-        if observer in param_dict["observer"]:
-            filtered = filtered.loc[pd.IndexSlice[:, :, :, :, observer], :]
-        else:
-            cur_observers = filtered.index.get_level_values("observer")
-            filtered_observers = [
-                observer for observer in param_dict["observer"] if observer in observer
-            ]
-            filtered = filtered[cur_observers.isin(filtered_observers)]
-        print(f"Filter by observer: {time.perf_counter() - checkpoint}s")
-    if proc_name != "All":
-        checkpoint = time.perf_counter()
-        if proc_name in param_dict["procname"]:
-            filtered = filtered.loc[pd.IndexSlice[:, :, :, :, :, :, :, proc_name], :]
-        else:
-            cur_proc_names = filtered.index.get_level_values("procname")
-            filtered_proc_names = [
-                proc_name
-                for proc_name in param_dict["procname"]
-                if proc_name in proc_name
-            ]
-            filtered = filtered[cur_proc_names.isin(filtered_proc_names)]
-        print(f"Filter by proc_name: {time.perf_counter() - checkpoint}s")
-    if obs_type != "All":
-        checkpoint = time.perf_counter()
-        if obs_type in param_dict["obstype"]:
-            filtered = filtered.loc[pd.IndexSlice[:, :, :, :, :, :, :, :, obs_type], :]
-        else:
-            cur_obs_types = filtered.index.get_level_values("obstype")
-            filtered_obs_types = [
-                obs_type for obs_type in param_dict["obstype"] if obs_type in obs_type
-            ]
-            filtered = filtered[cur_obs_types.isin(filtered_obs_types)]
-        print(f"Filter by obs_type: {time.perf_counter() - checkpoint}s")
-    if proc_scan != "All":
-        checkpoint = time.perf_counter()
-        if proc_scan in param_dict["procscan"]:
-            filtered = filtered.loc[
-                pd.IndexSlice[:, :, :, :, :, :, :, :, :, proc_scan], :
-            ]
-        else:
-            cur_proc_scans = filtered.index.get_level_values("procscan")
-            filtered_proc_scans = [
-                proc_scan
-                for proc_scan in param_dict["procscan"]
-                if proc_scan in proc_scan
-            ]
-            filtered = filtered[cur_proc_scans.isin(filtered_proc_scans)]
-        print(f"Filter by proc_scan: {time.perf_counter() - checkpoint}s")
-    if scan_number != (0, 5000):
-        checkpoint = time.perf_counter()
-        scan_numbers = filtered.index.get_level_values("scan_number")
-        filtered = filtered[
-            (scan_numbers >= scan_number[0]) & (scan_numbers < scan_number[1])
-        ]
-        print(f"Filter by scan_number: {time.perf_counter() - checkpoint}s")
-    if scan_start != (datetime(2002, 1, 1), cur_datetime - timedelta(days=1)):
-        checkpoint = time.perf_counter()
-        scan_starts = filtered.index.get_level_values("scan_start")
-        filtered = filtered[
-            (scan_starts >= scan_start[0]) & (scan_starts < scan_start[1])
-        ]
-        print(f"Filter by scan_start: {time.perf_counter() - checkpoint}s")
-    if frontend != param_dict["frontend"]:
-        checkpoint = time.perf_counter()
-        cur_frontends = filtered.index.get_level_values("frontend")
-        filtered = filtered[cur_frontends.isin(frontend)]
-        print(f"Filter by frontend: {time.perf_counter() - checkpoint}s")
-    if backend != param_dict["backend"]:
-        checkpoint = time.perf_counter()
-        cur_backends = filtered.index.get_level_values("backend")
-        filtered = filtered[cur_backends.isin(backend)]
-        print(f"Filter by backend: {time.perf_counter() - checkpoint}s")
-    if proc_type != param_dict["proctype"]:
-        checkpoint = time.perf_counter()
-        cur_proc_types = filtered.index.get_level_values("proctype")
-        filtered = filtered[cur_proc_types.isin(proc_type)]
-        print(f"Filter by proc_type: {time.perf_counter() - checkpoint}s")
-    if obj:
-        checkpoint = time.perf_counter()
-        if obj in param_dict["object"]:
-            filtered = filtered.xs(obj, level=11, drop_level=False)
-        else:
-            cur_objects = filtered.index.get_level_values("object")
-            filtered_objects = [obj for obj in param_dict["object"] if obj in obj]
-            filtered = filtered[cur_objects.isin(filtered_objects)]
-        print(f"Filter by object: {time.perf_counter() - checkpoint}s")
-    if script_name:
-        checkpoint = time.perf_counter()
-        if script_name in param_dict["script_name"]:
-            filtered = filtered.xs(script_name, level=1, drop_level=False)
-        else:
-            cur_script_names = filtered.index.get_level_values("script_name")
-            filtered_script_names = [
-                script_name
-                for script_name in param_dict["script_name"]
-                if script_name in script_name
-            ]
-            filtered = filtered[cur_script_names.isin(filtered_script_names)]
-        print(f"Filter by script_name: {time.perf_counter() - checkpoint}s")
+    param_types = {
+        "autocomplete_unrestricted": ["project", "session", "observer", "object", "script_name"],
+        "autocomplete_restricted": ["procname", "obstype", "procscan"],
+        "multiselect": ["frontend", "backend", "proctype"],
+        "range": ["RAJ2000", "DECJ2000", "scan_start", "scan_number"],
+    }
+    params = {
+        "project": project,
+        "session": session,
+        "observer": observer,
+        "object": obj,
+        "script_name": script_name,
+        "procname": procname,
+        "obstype": obstype,
+        "procscan": procscan,
+        "frontend": frontend,
+        "backend": backend,
+        "proctype": proctype,
+        "RAJ2000": RAJ2000,
+        "DECJ2000": DECJ2000,
+        "scan_start": scan_start,
+        "scan_number": scan_number,
+    }
+
+    for param_name in param_types["autocomplete_unrestricted"]:
+        param = params[param_name]
+        if param:
+            checkpoint = time.perf_counter()
+            if param in param_dict[param_name]:
+                filtered = filtered.xs(param, level=param_name, drop_level=False)
+            else:
+                cur_values = filtered.index.get_level_values(param_name)
+                filtered_values = [
+                    element for element in param_dict[param_name] if param in element
+                ]
+                filtered = filtered[cur_values.isin(filtered_values)]
+            print(f"Filter by {param_name}: {time.perf_counter() - checkpoint}s")
+
+    for param_name in param_types["autocomplete_restricted"]:
+        param = params[param_name]
+        if param != "All":
+            checkpoint = time.perf_counter()
+            filtered = filtered.xs(param, level=param_name, drop_level=False)
+            print(f"Filter by {param_name}: {time.perf_counter() - checkpoint}s")
+
+    for param_name in param_types["multiselect"]:
+        param = params[param_name]
+        if param != param_dict[param_name]:
+            checkpoint = time.perf_counter()
+            cur_values = filtered.index.get_level_values(param_name)
+            filtered = filtered[cur_values.isin(param)]
+            print(f"Filter by {param_name}: {time.perf_counter() - checkpoint}s")
+
+    for param_name in param_types["range"]:
+        param = params[param_name]
+        if param != default_ranges[param_name]:
+            checkpoint = time.perf_counter()
+            cur_values = filtered.index.get_level_values(param_name)
+            filtered = filtered[(cur_values >= param[0]) & (cur_values < param[1])]
+            print(f"Filter by {param_name}: {time.perf_counter() - checkpoint}s")
+
     print(f"Elapsed time: {time.perf_counter() - start}s")
     points = gv.Points(
         filtered,
@@ -467,8 +401,8 @@ def update_ra_dec(bounds):
     pc_top = pc_left_top[1]
 
     # Update widgets
-    ra.value = (pc_left, pc_right)
-    dec.value = (pc_bottom, pc_top)
+    RAJ2000.value = (pc_left, pc_right)
+    DECJ2000.value = (pc_bottom, pc_top)
 
 
 def update_tabulator(filtered):
