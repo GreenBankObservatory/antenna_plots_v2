@@ -40,9 +40,6 @@ def get_data(full_data_path, metadata_path):
     return dataset, metadata
 
 
-# TODO: reset all filters button?
-
-
 full_data_path, metadata_path = parse_arguments()
 dataset, metadata = get_data(full_data_path, metadata_path)
 metadata = metadata[~metadata.index.duplicated(keep='first')]
@@ -301,7 +298,6 @@ def plot_points(
     filtered = metadata
     if ra != (-180, 180) or dec != (-90, 90):
         checkpoint = time.perf_counter()
-        # ras = filtered.index.get_level_values("RAJ2000")
         ra, dec = project_bounds(ra[0], dec[0], ra[1], dec[1])
         # There's a problem here
         filtered = filtered[
@@ -451,7 +447,7 @@ def plot_points(
         )
     )
 
-    update_tabulator(sessions)  # TODO: move somewhere better?
+    update_tabulator(sessions)
 
     return points
 
@@ -463,14 +459,10 @@ def view(cmap, **kwargs):
     points = hv.DynamicMap(plot_points)
     agg = hd.rasterize(
         points,
-        # x_range=(0, 360),
-        # y_range=(-90, 90),
         x_sampling=1,
         y_sampling=1,
     )
     shaded = hd.shade(agg, cmap=cmap).opts(
-        # x_range=(0, 360),
-        # y_range=(-90, 90)
         projection=crs.Mollweide(),
         global_extent=True,
         width=800,
@@ -553,33 +545,10 @@ def crosshair(x, y):
         * hv.VLine(x).opts(color="lightblue", line_width=0.5)
         * text
     )
-
-
-text = """
-### Introduction
-This dashboard is a visual tool to explore and interact with archived GBT data. 
-The plot shows GBT antenna positions in the sky with color mapped to density of points. 
-Applying filters will update the plot and data table with the corresponding GBT sessions. 
-Beware of bugs! Also, no guarantees are made about the accuracy of the displayed information.
-
-### Features
-- The project, session, observer, object, and script name widgets allow you to filter by substring (e.g. 'Armen' will also return 'Armentrout')
-- To reset the proc name, observation type, or proc scan widgets, choose the option called 'All'
-- Click on a row in the data table to filter by that session. To undo that, click again on the same row
-- The last column of the table is a link to the corresponding page in the GBT archive
-- Use the box select tool (dashed box button to the right of the plot) to filter by a rectangular region that you draw on the plot
-- You can toggle between light/dark theme. *However*, this will reset the widgets and reload the page
-
-### Known bug
-Sometimes, the plot gets filled with a solid color. If that happens, try removing a filter. If the problem persists, reload the page. 
-This could happen if you apply filters such that there is no corresponding data, or if you use the box select tool on a region outside the extents of the plot.
-\n
----
-"""
+    
 
 template = pn.template.FastListTemplate(
     title="GBT Antenna Data Interactive Dashboard",
-    # sidebar=[pn.pane.Markdown(text)],
     sidebar=widgets,
     logo="https://greenbankobservatory.org/wp-content/uploads/2019/10/GBO-Primary-HighRes-White.png",
 )
@@ -587,5 +556,5 @@ template.main.append(pn.Column(view, tabulator))
 template.servable()
 
 # to run:
-# panel serve ant_pos_panel_server.py --allow-websocket-origin [address]
+# panel serve all_data_pos_panel_server.py --allow-websocket-origin [address] --reuse-sessions --global-loading-spinner
 # --args [full data parquet] [metadata parquet]
