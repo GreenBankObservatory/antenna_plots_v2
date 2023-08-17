@@ -173,13 +173,13 @@ scan_number = pn.widgets.IntRangeSlider(
 
 tabulator = pn.widgets.Tabulator(
     value=metadata,
-    groupby=['Session'],
-    configuration={'groupStartOpen':False},
+    groupby=["Session"],
+    # configuration={'groupStartOpen':False},
     formatters={"Archive": {"type": "html", "field": "html"}},
     disabled=True,
-    show_index=False,
+    show_index=True,
     pagination="remote",
-    page_size=15,
+    page_size=50,
     name="Filtered data",
 )
 
@@ -261,7 +261,13 @@ def plot_points(
     start = time.perf_counter()
     filtered = dataset
     param_types = {
-        "autocomplete_unrestricted": ["project", "session", "observer", "object", "script_name"],
+        "autocomplete_unrestricted": [
+            "project",
+            "session",
+            "observer",
+            "object",
+            "script_name",
+        ],
         "autocomplete_restricted": ["procname", "obstype", "procscan"],
         "multiselect": ["frontend", "backend", "proctype"],
         "range": ["RAJ2000", "DECJ2000", "scan_start", "scan_number"],
@@ -355,20 +361,21 @@ def view(cmap, **kwargs):
     spread = hd.dynspread(shaded)
 
     box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
-    box.add_subscriber(update_ra_dec)
+    box.add_subscriber(update_ra_dec_widget)
 
     pointer = streams.PointerXY(x=0, y=0, source=shaded)  # for crosshair
+    pointer.add_subscriber(update_ra_dec_cursor)
 
     plot = (
         spread.opts(tools=["box_select"], active_tools=["pan", "wheel_zoom"])
         * gv.feature.grid()
-        * hv.DynamicMap(crosshair, streams=[pointer])
+        # * hv.DynamicMap(crosshair, streams=[pointer])
     )
 
     return plot
 
 
-def update_ra_dec(bounds):
+def update_ra_dec_widget(bounds):
     """Changes the RA/Dec widgets based on bounds returned by BoxSelectTool"""
     mleft, mbottom, mright, mtop = bounds  # bounds in Mollweide projection
 
@@ -391,34 +398,24 @@ def update_ra_dec(bounds):
     DECJ2000.value = (pc_bottom, pc_top)
 
 
-def update_tabulator(filtered):
-    """Updates tabulator based on current filtered dataframe"""
-    start = time.perf_counter()
-    scan_starts = filtered.index.get_level_values("scan_start").unique().tolist()
-    print(f"Getting scan starts: {time.perf_counter() - start}s")
-
-    start = time.perf_counter()
-    cur_values = metadata.index.get_level_values('Scan start')
-    print(f"Getting metadata index: {time.perf_counter() - start}s")
-
-    start = time.perf_counter()
-    df = metadata[cur_values.isin(scan_starts)]
-    print(f"Creating filtered metadata table: {time.perf_counter() - start}s")
-
-    tabulator.value = df
+ra_dec_cursor_info = pn.pane.Str("")
 
 
-def filter_session(event):
-    """Called when the tabulator registers a click event. Changes the session filter to the clicked value"""
-    cur_session = tabulator.value["Session"].iloc[event.row]
-    prev_selected_session = session.value
-    if cur_session == prev_selected_session:
-        session.value = ""
+def update_ra_dec_cursor(x, y):
+    ra, dec = pc.transform_point(x, y, moll)
+    ra = round(ra, 4)
+    dec = round(dec, 4)
+    if (
+        ra == float("inf")
+        or ra != ra # check if nan
+        or dec == float("inf")
+        or dec != dec
+    ):
+        ra_dec_cursor_info.object = ""
     else:
-        session.value = cur_session
-
-
-tabulator.on_click(filter_session)  # Registers callback
+        ra_dec_cursor_info.object = (
+            f"RA: {ra}\N{DEGREE SIGN}, Dec: {dec}\N{DEGREE SIGN}"
+        )
 
 
 def crosshair(x, y):
@@ -440,24 +437,67 @@ def crosshair(x, y):
     )
 
 
+def update_tabulator(filtered):
+    """Updates tabulator based on current filtered dataframe"""
+
+    if filtered.equals(dataset):
+        tabulator.value = metadata
+
+    else:
+        start = time.perf_counter()
+        scan_starts = filtered.index.get_level_values("scan_start").unique().tolist()
+        print(f"Getting scan starts: {time.perf_counter() - start}s")
+
+        scan_index = metadata.index.get_level_values("Scan start")
+
+        start = time.perf_counter()
+        tabulator.value = metadata[scan_index.isin(scan_starts)]
+        print(f"Creating filtered metadata table: {time.perf_counter() - start}s")
+
+
+def filter_session(event):
+    """Called when the tabulator registers a click event. Changes the session filter to
+    the clicked value"""
+    cur_session = tabulator.value.iloc[event.row].name[1]
+    prev_selected_session = session.value
+    if cur_session == prev_selected_session:
+        session.value = ""
+    else:
+        session.value = cur_session
+
+
+tabulator.on_click(filter_session)  # Registers callback
+
+
 text = """
 ### Introduction
 This dashboard is a visual tool to explore and interact with archived GBT data. 
 The plot shows GBT antenna positions in the sky with color mapped to density of points. 
-Applying filters will update the plot and data table with the corresponding GBT sessions. 
-Beware of bugs! Also, no guarantees are made about the accuracy of the displayed information.
+Applying filters will update the plot and data table with the corresponding GBT 
+sessions. 
+Beware of bugs! Also, no guarantees are made about the accuracy of the displayed 
+information.
 
-### Features
-- The project, session, observer, object, and script name widgets allow you to filter by substring (e.g. 'Armen' will also return 'Armentrout')
-- To reset the proc name, observation type, or proc scan widgets, choose the option called 'All'
-- Click on a row in the data table to filter by that session. To undo that, click again on the same row
+### Features/how to use
+- The project, session, observer, object, and script name widgets allow you to filter by
+ substring (e.g. 'Armen' will also return 'Armentrout')
+- To reset the proc name, observation type, or proc scan widgets, choose the option 
+called 'All'
+- Click on a row in the data table to filter by that session (*not* scan). To undo 
+that, click again on the same row. Note: all the archive links currently point to the 
+session page, not the scan page.
 - The last column of the table is a link to the corresponding page in the GBT archive
-- Use the box select tool (dashed box button to the right of the plot) to filter by a rectangular region that you draw on the plot
-- You can toggle between light/dark theme. *However*, this will reset the widgets and reload the page
+- Use the box select tool (dashed box button to the right of the plot) to filter by a 
+rectangular region that you draw on the plot. To reset the box tool, click on the 
+"Reset coordinates" button on the sidebar.
+- You can toggle between light/dark theme using the button on the upper right corner. 
+*However*, this will reset the widgets and reload the page
 
 ### Known bug
-Sometimes, the plot gets filled with a solid color. If that happens, try removing a filter. If the problem persists, reload the page. 
-This could happen if you apply filters such that there is no corresponding data, or if you use the box select tool on a region outside the extents of the plot.
+Sometimes, the plot gets filled with a solid color. If that happens, try removing a 
+filter. If the problem persists, reload the page. 
+This could happen if you apply filters such that there is no corresponding data, or if 
+you use the box select tool on a region outside the extents of the plot.
 \n
 ---
 """
@@ -467,7 +507,7 @@ template = pn.template.FastListTemplate(
     sidebar=widgets,
     logo="https://greenbankobservatory.org/wp-content/uploads/2019/10/GBO-Primary-HighRes-White.png",
 )
-template.main.append(pn.Column(view, tabulator))
+template.main.append(pn.Column(view, ra_dec_cursor_info, tabulator))
 template.modal.append(text)
 template.servable()
 
