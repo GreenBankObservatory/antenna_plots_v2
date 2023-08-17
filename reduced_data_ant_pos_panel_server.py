@@ -42,7 +42,7 @@ def get_data(full_data_path, metadata_path):
 
 full_data_path, metadata_path = parse_arguments()
 dataset, metadata = get_data(full_data_path, metadata_path)
-cmaps = ["rainbow4", "bgy", "bgyw", "bmy", "gray", "kbc"]  # color maps
+cmaps = ["rainbow4", "blues", "bgy", "bmy", "kbc"]  # color maps
 
 # Generate lists of unique values for each parameter
 param_dict = {}
@@ -172,24 +172,10 @@ scan_number = pn.widgets.IntRangeSlider(
 )
 
 tabulator = pn.widgets.Tabulator(
-    value=pd.DataFrame(
-        columns=[
-            "Project",
-            "Session",
-            "Scan start",
-            "# of Scans",
-            "Observer",
-            "Frontend",
-            "Backend",
-            "ProcName",
-            "Obs type",
-            "ProcScan",
-            "ProcType",
-            "Object",
-            "Script name",
-            "Archive",
-        ]
-    ),
+    value=metadata,
+    groupby=['Session'],
+    configuration={'groupStartOpen':False},
+    formatters={"Archive": {"type": "html", "field": "html"}},
     disabled=True,
     show_index=False,
     pagination="remote",
@@ -407,10 +393,19 @@ def update_ra_dec(bounds):
 
 def update_tabulator(filtered):
     """Updates tabulator based on current filtered dataframe"""
-    sessions = filtered.index.get_level_values("session").unique().tolist()
-    df = metadata[metadata["Session"].isin(sessions)]
+    start = time.perf_counter()
+    scan_starts = filtered.index.get_level_values("scan_start").unique().tolist()
+    print(f"Getting scan starts: {time.perf_counter() - start}s")
+
+    start = time.perf_counter()
+    cur_values = metadata.index.get_level_values('Scan start')
+    print(f"Getting metadata index: {time.perf_counter() - start}s")
+
+    start = time.perf_counter()
+    df = metadata[cur_values.isin(scan_starts)]
+    print(f"Creating filtered metadata table: {time.perf_counter() - start}s")
+
     tabulator.value = df
-    tabulator.formatters = {"Archive": {"type": "html", "field": "html"}}
 
 
 def filter_session(event):
