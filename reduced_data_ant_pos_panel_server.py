@@ -37,6 +37,7 @@ def get_data(full_data_path, metadata_path):
     return dataset, metadata
 
 
+# TODO: handle changing long/lat widgets when coord_sys is changed?
 # TODO: reset all filters button?
 
 
@@ -73,8 +74,15 @@ prev_selected_session = ""  # for tabulator clicking
 default_ranges = {
     "RAJ2000": (-180, 180),
     "DECJ2000": (-90, 90),
+    "GAL_LONG": (-180, 180),
+    "GAL_LAT": (-90, 90),
     "scan_number": (0, 5000),
     "scan_start": (datetime(2002, 1, 1), cur_datetime - timedelta(days=1)),
+}
+
+coord_sys_dict = {
+    "Equatorial (J2000)": ["Right ascension (degrees)", "Declination (degrees)"],
+    "Galactic": ["Galactic longitude (degrees)", "Galactic latitude (degrees)"],
 }
 
 
@@ -82,11 +90,16 @@ default_ranges = {
 cmap = pn.widgets.Select(
     value=cm["rainbow4"], options={c: cm[c] for c in cmaps}, name="Color map"
 )
-RAJ2000 = pn.widgets.RangeSlider(
-    start=-180, end=180, step=0.1, value=(-180, 180), name="Right ascension (J2000)"
+coord_sys = pn.widgets.Select(
+    value="Equatorial (J2000)",
+    options=["Equatorial (J2000)", "Galactic"],
+    name="Coordinate system",
 )
-DECJ2000 = pn.widgets.RangeSlider(
-    start=-90, end=90, step=0.1, value=(-90, 90), name="Declination (J2000)"
+longitude_bounds = pn.widgets.RangeSlider(
+    start=-180, end=180, step=0.1, value=(-180, 180), name="Right ascension (degrees)"
+)
+latitude_bounds = pn.widgets.RangeSlider(
+    start=-90, end=90, step=0.1, value=(-90, 90), name="Declination (degrees)"
 )
 project = pn.widgets.AutocompleteInput(
     options=param_dict["project"],
@@ -174,7 +187,6 @@ scan_number = pn.widgets.IntRangeSlider(
 tabulator = pn.widgets.Tabulator(
     value=metadata,
     groupby=["Session"],
-    # configuration={'groupStartOpen':False},
     formatters={"Archive": {"type": "html", "field": "html"}},
     disabled=True,
     show_index=True,
@@ -185,26 +197,39 @@ tabulator = pn.widgets.Tabulator(
 
 
 def reset_coords(event):
-    RAJ2000.value = (-180, 180)
-    DECJ2000.value = (-90, 90)
+    longitude_bounds.value = (-180, 180)
+    latitude_bounds.value = (-90, 90)
 
 
 def about_callback(event):
     template.open_modal()
 
 
-reset = pn.widgets.Button(name="Reset coordinates")
-reset.on_click(reset_coords)
+def long_callback(target, event):
+    target.name = coord_sys_dict[event.new][0]
+    target.value = (-180, 180)
+
+
+def lat_callback(target, event):
+    target.name = coord_sys_dict[event.new][1]
+    target.value = (-90, 90)
+
 
 modal_btn = pn.widgets.Button(name="Click for more information")
 modal_btn.on_click(about_callback)
 
+reset = pn.widgets.Button(name="Reset coordinates")
+reset.on_click(reset_coords)
+
+coord_sys.link(longitude_bounds, callbacks={'value': long_callback})
+coord_sys.link(latitude_bounds, callbacks={'value': lat_callback})
 
 widgets = [
     modal_btn,
     cmap,
-    RAJ2000,
-    DECJ2000,
+    coord_sys,
+    longitude_bounds,
+    latitude_bounds,
     reset,
     project,
     session,
@@ -223,8 +248,9 @@ widgets = [
 
 
 @pn.depends(
-    RAJ2000=RAJ2000,
-    DECJ2000=DECJ2000,
+    coord_sys=coord_sys,
+    longitude_bounds=longitude_bounds,
+    latitude_bounds=latitude_bounds,
     project=project,
     session=session,
     observer=observer,
@@ -240,8 +266,9 @@ widgets = [
     script_name=script_name,
 )
 def plot_points(
-    RAJ2000,
-    DECJ2000,
+    coord_sys,
+    longitude_bounds,
+    latitude_bounds,
     project,
     session,
     observer,
@@ -270,8 +297,13 @@ def plot_points(
         ],
         "autocomplete_restricted": ["procname", "obstype", "procscan"],
         "multiselect": ["frontend", "backend", "proctype"],
-        "range": ["RAJ2000", "DECJ2000", "scan_start", "scan_number"],
+        "range": ["scan_start", "scan_number"],
     }
+    if coord_sys == "Equatorial (J2000)":
+        param_types["range"] += ["RAJ2000", "DECJ2000"]
+    else:
+        param_types["range"] += ["GAL_LONG", "GAL_LAT"]
+
     params = {
         "project": project,
         "session": session,
@@ -284,10 +316,12 @@ def plot_points(
         "frontend": frontend,
         "backend": backend,
         "proctype": proctype,
-        "RAJ2000": RAJ2000,
-        "DECJ2000": DECJ2000,
         "scan_start": scan_start,
         "scan_number": scan_number,
+        "RAJ2000": longitude_bounds,
+        "DECJ2000": latitude_bounds,
+        "GAL_LONG": longitude_bounds,
+        "GAL_LAT": latitude_bounds,
     }
 
     for param_name in param_types["autocomplete_unrestricted"]:
@@ -328,9 +362,15 @@ def plot_points(
             print(f"Filter by {param_name}: {time.perf_counter() - checkpoint}s")
 
     print(f"Elapsed time: {time.perf_counter() - start}s")
+
+    kdims = (
+        ["projected_x", "projected_y"]
+        if coord_sys == "Equatorial (J2000)"
+        else ["projected_gal_long", "projected_gal_lat"]
+    )
     points = gv.Points(
         filtered,
-        kdims=["projected_x", "projected_y"],
+        kdims=kdims,
         crs=moll,
     )
     points = points.opts(
@@ -361,10 +401,10 @@ def view(cmap, **kwargs):
     spread = hd.dynspread(shaded)
 
     box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
-    box.add_subscriber(update_ra_dec_widget)
+    box.add_subscriber(update_bounds_widgets)
 
     pointer = streams.PointerXY(x=0, y=0, source=shaded)  # for crosshair
-    pointer.add_subscriber(update_ra_dec_cursor)
+    pointer.add_subscriber(update_coord_info)
 
     plot = (
         spread.opts(tools=["box_select"], active_tools=["pan", "wheel_zoom"])
@@ -375,8 +415,8 @@ def view(cmap, **kwargs):
     return plot
 
 
-def update_ra_dec_widget(bounds):
-    """Changes the RA/Dec widgets based on bounds returned by BoxSelectTool"""
+def update_bounds_widgets(bounds):
+    """Changes the long/lat widgets based on bounds returned by BoxSelectTool"""
     mleft, mbottom, mright, mtop = bounds  # bounds in Mollweide projection
 
     # Find four corners of rectangle in PlateCarree projection
@@ -385,56 +425,40 @@ def update_ra_dec_widget(bounds):
     pc_right_bottom = pc.transform_point(mright, mbottom, moll)
     pc_right_top = pc.transform_point(mright, mtop, moll)
 
-    # Projection distorts RA, so take widest range
+    # Projection distorts longitude, so take widest range
     pc_left = min(pc_left_bottom[0], pc_left_top[0])
     pc_right = max(pc_right_bottom[0], pc_right_top[0])
 
-    # Dec doesn't vary
+    # Latitude doesn't vary
     pc_bottom = pc_left_bottom[1]
     pc_top = pc_left_top[1]
 
     # Update widgets
-    RAJ2000.value = (pc_left, pc_right)
-    DECJ2000.value = (pc_bottom, pc_top)
+    longitude_bounds.value = (pc_left, pc_right)
+    latitude_bounds.value = (pc_bottom, pc_top)
 
 
-ra_dec_cursor_info = pn.pane.Str("")
+coord_info = pn.pane.Str("")
 
 
-def update_ra_dec_cursor(x, y):
-    ra, dec = pc.transform_point(x, y, moll)
-    ra = round(ra, 4)
-    dec = round(dec, 4)
+def update_coord_info(x, y):
+    long, lat = pc.transform_point(x, y, moll)
+    long = round(long, 4)
+    lat = round(lat, 4)
     if (
-        ra == float("inf")
-        or ra != ra # check if nan
-        or dec == float("inf")
-        or dec != dec
+        long == float("inf")
+        or long != long  # check if nan
+        or lat == float("inf")
+        or lat != lat
     ):
-        ra_dec_cursor_info.object = ""
+        coord_info.object = ""
     else:
-        ra_dec_cursor_info.object = (
-            f"RA: {ra}\N{DEGREE SIGN}, Dec: {dec}\N{DEGREE SIGN}"
-        )
-
-
-def crosshair(x, y):
-    """Generates crosshair and label from coordinates of PointerXY stream"""
-    ra, dec = pc.transform_point(x, y, moll)
-    ra = round(ra, 1)
-    dec = round(dec, 1)
-    text = hv.Text(
-        x,
-        y,
-        f"RA: {ra}\N{DEGREE SIGN}\nDec: {dec}\N{DEGREE SIGN}",
-        halign="left",
-        valign="bottom",
-    ).opts(color="#0072B5")
-    return (
-        hv.HLine(y).opts(color="lightblue", line_width=0.5)
-        * hv.VLine(x).opts(color="lightblue", line_width=0.5)
-        * text
-    )
+        if coord_sys.value == "Equatorial (J2000)":
+            coord_info.object = f"RA: {long}\N{DEGREE SIGN}, Dec: {lat}\N{DEGREE SIGN}"
+        else:
+            coord_info.object = (
+                f"Gal long: {long}\N{DEGREE SIGN}, Gal lat: {lat}\N{DEGREE SIGN}"
+            )
 
 
 def update_tabulator(filtered):
@@ -507,7 +531,7 @@ template = pn.template.FastListTemplate(
     sidebar=widgets,
     logo="https://greenbankobservatory.org/wp-content/uploads/2019/10/GBO-Primary-HighRes-White.png",
 )
-template.main.append(pn.Column(view, ra_dec_cursor_info, tabulator))
+template.main.append(pn.Column(view, coord_info, tabulator))
 template.modal.append(text)
 template.servable()
 
