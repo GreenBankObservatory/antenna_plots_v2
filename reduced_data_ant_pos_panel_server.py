@@ -1,5 +1,5 @@
 print("Importing...")
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
 import argparse
 
@@ -35,10 +35,6 @@ def get_data(full_data_path, metadata_path):
     metadata = pd.read_parquet(metadata_path)
     print(f"Elapsed time: {time.perf_counter() - start}s")
     return dataset, metadata
-
-
-# TODO: handle changing long/lat widgets when coord_sys is changed?
-# TODO: reset all filters button?
 
 
 full_data_path, metadata_path = parse_arguments()
@@ -77,7 +73,7 @@ default_ranges = {
     "GAL_LONG": (-180, 180),
     "GAL_LAT": (-90, 90),
     "scan_number": (0, 5000),
-    "scan_start": (datetime(2002, 1, 1), cur_datetime - timedelta(days=1)),
+    "scan_start": (datetime(2002, 1, 1), cur_datetime),
 }
 
 coord_sys_dict = {
@@ -128,7 +124,7 @@ observer = pn.widgets.AutocompleteInput(
 scan_start = pn.widgets.DatetimeRangeInput(
     start=datetime(2002, 1, 1),
     end=cur_datetime,
-    value=(datetime(2002, 1, 1), cur_datetime - timedelta(days=1)),
+    value=(datetime(2002, 1, 1), cur_datetime),
     name="Date and time of first scan",
 )
 procname = pn.widgets.AutocompleteInput(
@@ -193,6 +189,7 @@ tabulator = pn.widgets.Tabulator(
     pagination="remote",
     page_size=50,
     name="Filtered data",
+    sizing_mode="stretch_width",
 )
 
 
@@ -403,13 +400,12 @@ def view(cmap, **kwargs):
     box = streams.BoundsXY(source=shaded, bounds=(0, 0, 0, 0))
     box.add_subscriber(update_bounds_widgets)
 
-    pointer = streams.PointerXY(x=0, y=0, source=shaded)  # for crosshair
+    pointer = streams.PointerXY(x=0, y=0, source=shaded)  # for cursor coordinate info
     pointer.add_subscriber(update_coord_info)
 
     plot = (
         spread.opts(tools=["box_select"], active_tools=["pan", "wheel_zoom"])
         * gv.feature.grid()
-        # * hv.DynamicMap(crosshair, streams=[pointer])
     )
 
     return plot
@@ -492,7 +488,6 @@ def filter_session(event):
 
 tabulator.on_click(filter_session)  # Registers callback
 
-
 text = """
 ### Introduction
 This dashboard is a visual tool to explore and interact with archived GBT data. 
@@ -517,11 +512,13 @@ rectangular region that you draw on the plot. To reset the box tool, click on th
 - You can toggle between light/dark theme using the button on the upper right corner. 
 *However*, this will reset the widgets and reload the page
 
-### Known bug
-Sometimes, the plot gets filled with a solid color. If that happens, try removing a 
-filter. If the problem persists, reload the page. 
-This could happen if you apply filters such that there is no corresponding data, or if 
-you use the box select tool on a region outside the extents of the plot.
+### Known bugs
+- When switching to galactic coordinates, the whole plot will not render until you zoom
+or pan slightly.
+- Sometimes, the plot gets filled with a solid color. If that happens, try removing a 
+filter. If the problem persists, reload the page. This could happen if you apply 
+filters such that there is no corresponding data, or if you use the box select tool on 
+a region outside the extents of the plot.
 \n
 ---
 """
@@ -531,7 +528,7 @@ template = pn.template.FastListTemplate(
     sidebar=widgets,
     logo="https://greenbankobservatory.org/wp-content/uploads/2019/10/GBO-Primary-HighRes-White.png",
 )
-template.main.append(pn.Column(view, coord_info, tabulator))
+template.main.append(pn.Column(view, coord_info, tabulator, sizing_mode="stretch_both"))
 template.modal.append(text)
 template.servable()
 
